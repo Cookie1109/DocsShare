@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout/Layout';
 import HomePage from './pages/HomePage';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ChatPage from './pages/ChatPage';
@@ -56,8 +57,15 @@ const AppContent = () => {
           </PublicRoute>
         } />
 
-        {/* Routes with Layout */}
+        {/* Landing Page */}
         <Route path="/" element={
+          <PublicRoute>
+            <LandingPage />
+          </PublicRoute>
+        } />
+
+        {/* Routes with Layout */}
+        <Route path="/home" element={
           <Layout user={user} onLogout={logout}>
             <HomePage />
           </Layout>

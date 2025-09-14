@@ -89,11 +89,18 @@ export const AuthProvider = ({ children }) => {
 
   const updateProfile = async (updatedData) => {
     try {
+      console.log('Updating profile with data:', updatedData);
+      console.log('Current user:', user);
+      
       const updatedUser = { ...user, ...updatedData };
+      console.log('Updated user:', updatedUser);
+      
       setUser(updatedUser);
       localStorage.setItem('docsshare_user', JSON.stringify(updatedUser));
+      
       return { success: true };
     } catch (error) {
+      console.error('Error in updateProfile:', error);
       return { 
         success: false, 
         error: 'Đã xảy ra lỗi khi cập nhật hồ sơ' 
