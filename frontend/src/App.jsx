@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout/Layout';
 import HomePage from './pages/HomePage';
 import LandingPage from './pages/LandingPage';
-import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ChatPage from './pages/ChatPage';
 
@@ -20,7 +19,7 @@ const ProtectedRoute = ({ children }) => {
     );
   }
   
-  return user ? children : <Navigate to="/login" replace />;
+  return user ? children : <Navigate to="/" replace />;
 };
 
 // Public Route Component (redirect to chat if already logged in)
@@ -46,11 +45,7 @@ const AppContent = () => {
     <Router>
       <Routes>
         {/* Public Routes */}
-        <Route path="/login" element={
-          <PublicRoute>
-            <LoginPage />
-          </PublicRoute>
-        } />
+        <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="/register" element={
           <PublicRoute>
             <RegisterPage />

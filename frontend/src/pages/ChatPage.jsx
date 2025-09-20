@@ -81,7 +81,7 @@ const ChatPage = () => {
   // Initialize user data when modal opens
   useEffect(() => {
     if (showUserProfileModal) {
-      setUserName(user?.name || '');
+      setUserName(user?.username || user?.name || '');
       setUserAvatar(user?.avatar || null);
       setIsEditing(false);
     }
@@ -208,14 +208,14 @@ const ChatPage = () => {
                     />
                   ) : (
                     <span className="text-emerald-700 font-medium text-sm">
-                      {user?.name?.charAt(0).toUpperCase() || 'U'}
+                      {(user?.username || user?.name)?.charAt(0).toUpperCase() || 'U'}
                     </span>
                   )}
                 </div>
                 <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-white"></div>
               </div>
               <div className="flex-1 text-left">
-                <p className="font-medium text-gray-800 text-sm">{user?.name || 'Người dùng'}</p>
+                <p className="font-medium text-gray-800 text-sm">{user?.username || user?.name || 'Người dùng'}</p>
                 <p className="text-gray-500 text-xs">Đang hoạt động</p>
               </div>
               <Settings className="w-4 h-4 text-gray-400" />
@@ -289,7 +289,7 @@ const ChatPage = () => {
                       />
                     ) : (
                       <span className="text-emerald-700 font-semibold text-2xl">
-                        {userName?.charAt(0).toUpperCase() || user?.name?.charAt(0).toUpperCase() || 'U'}
+                        {userName?.charAt(0).toUpperCase() || (user?.username || user?.name)?.charAt(0).toUpperCase() || 'U'}
                       </span>
                     )}
                   </div>
@@ -366,7 +366,7 @@ const ChatPage = () => {
             {/* Modal Footer */}
             <div className="flex items-center justify-between p-6 border-t border-gray-200">
               <div className="text-left">
-                {(userName !== user?.name || userAvatar !== user?.avatar) && (
+                {(userName !== (user?.username || user?.name) || userAvatar !== user?.avatar) && (
                   <p className="text-xs text-amber-600">Có thay đổi chưa được lưu</p>
                 )}
               </div>
@@ -374,7 +374,7 @@ const ChatPage = () => {
                 <button
                   onClick={() => {
                     setShowUserProfileModal(false);
-                    setUserName(user?.name || '');
+                    setUserName(user?.username || user?.name || '');
                     setUserAvatar(user?.avatar || null);
                     setIsEditing(false);
                   }}

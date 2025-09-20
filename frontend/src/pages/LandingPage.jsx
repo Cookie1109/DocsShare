@@ -23,7 +23,7 @@ const LandingPage = () => {
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const { login } = useAuth();
+  const { login, register, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   // Login form state
@@ -31,6 +31,10 @@ const LandingPage = () => {
     email: '',
     password: ''
   });
+  
+  // Error state for login
+  const [loginError, setLoginError] = useState('');
+  const [hasLoginError, setHasLoginError] = useState(false);
 
   // Register form state
   const [registerData, setRegisterData] = useState({
@@ -43,20 +47,36 @@ const LandingPage = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    // Mock login - in real app, validate with backend
-    const success = await login(loginData.email, loginData.password);
-    if (success) {
+    // Reset error state
+    setLoginError('');
+    setHasLoginError(false);
+    
+    const result = await login(loginData.email, loginData.password);
+    if (result.success) {
       setShowLoginModal(false);
       navigate('/chat');
+    } else {
+      // Show error
+      setLoginError(result.error || 'Email hoặc mật khẩu không đúng');
+      setHasLoginError(true);
     }
   };
 
   const handleGoogleLogin = async () => {
-    // Mock Google login - in real app, integrate with Google OAuth
-    console.log('Google login clicked');
-    // For demo, just redirect to chat
-    setShowLoginModal(false);
-    navigate('/chat');
+    try {
+      const result = await loginWithGoogle();
+      if (result.success) {
+        setShowLoginModal(false);
+        navigate('/chat');
+      } else {
+        setLoginError(result.error || 'Đăng nhập Google thất bại');
+        setHasLoginError(true);
+      }
+    } catch (error) {
+      console.error('Google login error:', error);
+      setLoginError('Đăng nhập Google thất bại');
+      setHasLoginError(true);
+    }
   };
 
   const handleRegister = async (e) => {
@@ -66,25 +86,41 @@ const LandingPage = () => {
       return;
     }
     if (!registerData.displayName.trim() || !registerData.userTag.trim()) {
-      alert('Vui lòng nhập đầy đủ tên hiển thị và tag!');
+      alert('Vui lòng nhập đầy đủ tên và tag!');
       return;
     }
-    // Create full username
-    const fullUsername = `${registerData.displayName}#${registerData.userTag}`;
-    const userData = { ...registerData, username: fullUsername };
+    if (!registerData.email.trim()) {
+      alert('Vui lòng nhập email!');
+      return;
+    }
     
-    // Mock register - in real app, call backend API
-    console.log('Registering user:', userData);
-    setShowRegisterModal(false);
-    setShowLoginModal(true);
+    try {
+      const result = await register(registerData);
+      if (result.success) {
+        setShowRegisterModal(false);
+        navigate('/chat');
+      } else {
+        alert(result.error || 'Đăng ký thất bại');
+      }
+    } catch (error) {
+      console.error('Register error:', error);
+      alert('Đăng ký thất bại');
+    }
   };
 
   const handleGoogleRegister = async () => {
-    // Mock Google register - in real app, integrate with Google OAuth
-    console.log('Google register clicked');
-    // For demo, just redirect to chat
-    setShowRegisterModal(false);
-    navigate('/chat');
+    try {
+      const result = await loginWithGoogle();
+      if (result.success) {
+        setShowRegisterModal(false);
+        navigate('/chat');
+      } else {
+        alert(result.error || 'Đăng ký Google thất bại');
+      }
+    } catch (error) {
+      console.error('Google register error:', error);
+      alert('Đăng ký Google thất bại');
+    }
   };
 
   const features = [

@@ -6,7 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
+    displayName: '',
+    userTag: '',
     password: '',
     confirmPassword: ''
   });
@@ -45,11 +46,20 @@ const RegisterPage = () => {
       newErrors.name = 'Họ tên phải có ít nhất 2 ký tự';
     }
 
-    // Email validation
-    if (!formData.email) {
-      newErrors.email = 'Vui lòng nhập email';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email không hợp lệ';
+    // Display Name validation
+    if (!formData.displayName) {
+      newErrors.displayName = 'Vui lòng nhập tên hiển thị';
+    } else if (formData.displayName.length < 2) {
+      newErrors.displayName = 'Tên hiển thị phải có ít nhất 2 ký tự';
+    }
+
+    // User Tag validation
+    if (!formData.userTag) {
+      newErrors.userTag = 'Vui lòng nhập tag';
+    } else if (!/^\d+$/.test(formData.userTag)) {
+      newErrors.userTag = 'Tag phải là số';
+    } else if (formData.userTag.length > 6) {
+      newErrors.userTag = 'Tag không được quá 6 số';
     }
 
     // Password validation
@@ -115,9 +125,12 @@ const RegisterPage = () => {
     setMessage({ type: '', content: '' });
 
     try {
+      const fullUsername = `${formData.displayName}#${formData.userTag}`;
       const result = await register({
         name: formData.name.trim(),
-        email: formData.email,
+        username: fullUsername,
+        displayName: formData.displayName,
+        userTag: formData.userTag,
         password: formData.password
       });
       
@@ -215,35 +228,76 @@ const RegisterPage = () => {
               )}
             </div>
 
-            {/* Email Field */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email *
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" />
+            {/* Display Name + User Tag Fields */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Display Name */}
+              <div>
+                <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 mb-2">
+                  Tên hiển thị *
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="displayName"
+                    name="displayName"
+                    type="text"
+                    value={formData.displayName}
+                    onChange={handleChange}
+                    className={`block w-full pl-10 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
+                      errors.displayName ? 'border-red-300' : 'border-gray-300'
+                    }`}
+                    placeholder="Cookie"
+                  />
                 </div>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className={`block w-full pl-10 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
-                    errors.email ? 'border-red-300' : 'border-gray-300'
-                  }`}
-                  placeholder="Nhập email của bạn"
-                />
+                {errors.displayName && (
+                  <p className="mt-2 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" />
+                    {errors.displayName}
+                  </p>
+                )}
               </div>
-              {errors.email && (
-                <p className="mt-2 text-sm text-red-600 flex items-center">
-                  <AlertCircle className="h-4 w-4 mr-1" />
-                  {errors.email}
-                </p>
-              )}
+
+              {/* User Tag */}
+              <div>
+                <label htmlFor="userTag" className="block text-sm font-medium text-gray-700 mb-2">
+                  Tag *
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400 text-sm">#</span>
+                  </div>
+                  <input
+                    id="userTag"
+                    name="userTag"
+                    type="text"
+                    value={formData.userTag}
+                    onChange={handleChange}
+                    className={`block w-full pl-8 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
+                      errors.userTag ? 'border-red-300' : 'border-gray-300'
+                    }`}
+                    placeholder="1109"
+                  />
+                </div>
+                {errors.userTag && (
+                  <p className="mt-2 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" />
+                    {errors.userTag}
+                  </p>
+                )}
+              </div>
             </div>
+
+            {/* Username Preview */}
+            {(formData.displayName || formData.userTag) && (
+              <div className="px-4 py-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-700">
+                  <span className="font-semibold">Tài khoản của bạn: </span>
+                  <span className="font-mono">{formData.displayName || 'Tên'}#{formData.userTag || 'Tag'}</span>
+                </p>
+              </div>
+            )}
 
             {/* Password Field */}
             <div>

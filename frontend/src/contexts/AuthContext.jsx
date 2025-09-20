@@ -1,4 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { 
+  signInWithCredentials, 
+  signInWithGoogle, 
+  signUpWithEmail, 
+  signOutUser, 
+  onAuthStateChange,
+  getUserData,
+  checkUsernameExists
+} from '../services/firebase';
 
 const AuthContext = createContext();
 
@@ -14,77 +23,111 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Mock user data for demo
+  // Firebase auth state listener
   useEffect(() => {
-    // Simulate checking for saved login state
-    const savedUser = localStorage.getItem('docsshare_user');
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (error) {
-        console.error('Error parsing saved user:', error);
-        localStorage.removeItem('docsshare_user');
+    const unsubscribe = onAuthStateChange(async (firebaseUser) => {
+      if (firebaseUser) {
+        const userData = await getUserData(firebaseUser.uid);
+        if (userData.success) {
+          setUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            ...userData.data
+          });
+        }
+      } else {
+        setUser(null);
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const login = async (email, password) => {
     try {
-      // Mock login - replace with actual Firebase auth
-      if (email === 'demo@docsshare.com' && password === 'demo123') {
-        const userData = {
-          id: '1',
-          name: 'Người dùng Demo',
-          email: 'demo@docsshare.com',
-          avatar: null,
-          role: 'member',
-          joinDate: new Date().toISOString(),
-        };
-        
-        setUser(userData);
-        localStorage.setItem('docsshare_user', JSON.stringify(userData));
-        return { success: true };
-      } else {
-        return { 
-          success: false, 
-          error: 'Email hoặc mật khẩu không đúng' 
-        };
+      const result = await signInWithCredentials(email, password);
+      
+      if (result.success) {
+        const userData = await getUserData(result.user.uid);
+        if (userData.success) {
+          setUser({
+            uid: result.user.uid,
+            email: result.user.email,
+            ...userData.data
+          });
+          return { success: true };
+        }
       }
+      
+      return { success: false, error: result.error || 'Đăng nhập thất bại' };
     } catch (error) {
-      return { 
-        success: false, 
-        error: 'Đã xảy ra lỗi khi đăng nhập' 
-      };
+      console.error('Login error:', error);
+      return { success: false, error: 'Email hoặc mật khẩu không đúng' };
     }
   };
 
   const register = async (userData) => {
     try {
-      // Mock registration - replace with actual Firebase auth
-      const newUser = {
-        id: Date.now().toString(),
-        name: userData.name,
-        email: userData.email,
-        avatar: null,
-        role: 'member',
-        joinDate: new Date().toISOString(),
-      };
+      // Check if username already exists
+      const usernameCheck = await checkUsernameExists(userData.displayName, userData.userTag);
+      if (usernameCheck.success && usernameCheck.exists) {
+        return { success: false, error: 'Tên người dùng đã tồn tại' };
+      }
       
-      setUser(newUser);
-      localStorage.setItem('docsshare_user', JSON.stringify(newUser));
-      return { success: true };
+      const result = await signUpWithEmail(userData.email, userData.displayName, userData.userTag, userData.password);
+      
+      if (result.success) {
+        const userDataResult = await getUserData(result.user.uid);
+        if (userDataResult.success) {
+          setUser({
+            uid: result.user.uid,
+            email: result.user.email,
+            ...userDataResult.data
+          });
+          return { success: true };
+        }
+      }
+      
+      return { success: false, error: result.error };
     } catch (error) {
-      return { 
-        success: false, 
-        error: 'Đã xảy ra lỗi khi đăng ký' 
-      };
+      console.error('Register error:', error);
+      return { success: false, error: 'Đăng ký thất bại' };
     }
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('docsshare_user');
+  const logout = async () => {
+    try {
+      await signOutUser();
+      setUser(null);
+      return { success: true };
+    } catch (error) {
+      console.error('Logout error:', error);
+      return { success: false, error: 'Đăng xuất thất bại' };
+    }
+  };
+
+  const loginWithGoogle = async () => {
+    try {
+      const result = await signInWithGoogle();
+      
+      if (result.success) {
+        const userData = await getUserData(result.user.uid);
+        if (userData.success) {
+          setUser({
+            uid: result.user.uid,
+            email: result.user.email,
+            ...userData.data
+          });
+          return { success: true };
+        }
+      }
+      
+      return { success: false, error: result.error };
+    } catch (error) {
+      console.error('Google login error:', error);
+      return { success: false, error: 'Đăng nhập Google thất bại' };
+    }
   };
 
   const updateProfile = async (updatedData) => {
@@ -114,6 +157,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    loginWithGoogle,
     updateProfile,
   };
 
