@@ -3,16 +3,52 @@ import {
   X, Users, Crown, MoreVertical, Settings, UserX, Camera, 
   Search, Filter, FileText, Hash, Edit2, Trash2, LogOut,
   UserPlus, Shield, Eye, Download, Calendar, Tag, File,
-  FileImage, FileSpreadsheet, FileCode, Archive, Paperclip
+  FileImage, FileSpreadsheet, FileCode, Archive, Paperclip,
+  Plus
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import CreateGroupModal from './CreateGroupModal';
 
-const GroupSidebar = ({ group, user, onClose }) => {
+const GroupSidebar = ({ group, onClose }) => {
   const [activeTab, setActiveTab] = useState('members');
   const [showKickModal, setShowKickModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
+  const [showLeaveGroupModal, setShowLeaveGroupModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
+  
+  const { userGroups, selectedGroup, groupMembers, selectGroup, addMemberToGroup, removeMemberFromGroup, updateMemberRoleInGroup, checkUserRole, deleteGroup, leaveGroup, user } = useAuth();
+
+  // Get current group data - prioritize selectedGroup from context
+  const currentGroup = userGroups.find(g => g.id === selectedGroup) || group;
+  
+  // Early return if no group data
+  if (!currentGroup) {
+    return (
+      <div className="w-96 bg-white border-l border-gray-200 flex flex-col h-full">
+        <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-800">Thông tin nhóm</h2>
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-gray-200 rounded-full transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Users className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+            <p className="text-gray-500">Không tìm thấy thông tin nhóm</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
   
   // Files tab state
   const [searchFiles, setSearchFiles] = useState('');
@@ -23,12 +59,31 @@ const GroupSidebar = ({ group, user, onClose }) => {
     setIsAnimatingIn(true);
   }, []);
 
-  // Mock data
-  const members = [
-    { id: 1, name: 'Nguyen Van A', role: 'admin', isCreator: true, avatar: null },
-    { id: 2, name: 'Tran Thi B', role: 'member', isCreator: false, avatar: null },
-    { id: 3, name: 'Le Van C', role: 'member', isCreator: false, avatar: null },
-  ];
+  // Load group members when group changes
+  React.useEffect(() => {
+    if (currentGroup?.id && selectGroup) {
+      selectGroup(currentGroup.id);
+    }
+  }, [currentGroup?.id, selectGroup]);
+
+
+  
+  // Helper functions
+  const isUserAdmin = () => {
+    if (!user?.uid || !groupMembers) return false;
+    const userMembership = groupMembers.find(member => member.userId === user.uid);
+    return userMembership?.role === 'admin';
+  };
+
+  const isGroupCreator = () => {
+    return currentGroup?.creatorId === user?.uid;
+  };
+
+  const getCurrentUserRole = () => {
+    if (!user?.uid || !groupMembers) return null;
+    const userMembership = groupMembers.find(member => member.userId === user.uid);
+    return userMembership?.role || null;
+  };
 
   const groupFiles = [
     { 
@@ -86,39 +141,109 @@ const GroupSidebar = ({ group, user, onClose }) => {
   const availableTags = ['Tất cả', 'Học tập', 'Dự án', 'Bài tập', 'Thiết kế', 'UI/UX', 'Source code', 'Database', 'React'];
 
   const tabs = [
-    { id: 'members', label: 'Thành viên', icon: Users, count: members.length },
+    { id: 'members', label: 'Thành viên', icon: Users, count: groupMembers?.length || 0 },
     { id: 'files', label: 'File', icon: FileText, count: groupFiles.length },
     { id: 'settings', label: 'Cài đặt', icon: Settings, count: null }
   ];
 
-  const getCurrentUserRole = () => 'admin'; // Mock
+
 
   const isCurrentUserAdmin = () => {
-    return getCurrentUserRole() === 'admin';
+    return isUserAdmin();
   };
 
-  // Kick member functions
+  // Member management functions
   const handleKickMember = (member) => {
     setSelectedMember(member);
     setShowKickModal(true);
   };
 
-  const confirmKickMember = () => {
-    console.log('Kicking member:', selectedMember);
-    // In real app, this would call API to kick member
-    alert(`Đã kick thành viên: ${selectedMember.name}`);
-    setShowKickModal(false);
-    setSelectedMember(null);
+  const confirmKickMember = async () => {
+    if (!selectedMember || !selectedGroup) return;
+    
+    try {
+      const result = await removeMemberFromGroup(selectedMember.membershipId, selectedGroup);
+      if (result.success) {
+        alert(`Đã xóa ${selectedMember.user.displayName} khỏi nhóm`);
+      } else {
+        alert(`Lỗi: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error removing member:', error);
+      alert('Có lỗi xảy ra khi xóa thành viên');
+    } finally {
+      setShowKickModal(false);
+      setSelectedMember(null);
+    }
   };
 
-  // Invite member functions
+  const handleChangeRole = async (member) => {
+    if (!selectedGroup) return;
+    
+    const newRole = member.role === 'admin' ? 'member' : 'admin';
+    const confirm = window.confirm(
+      `Bạn có chắc muốn ${newRole === 'admin' ? 'thăng chức' : 'giáng chức'} ${member.user.displayName}?`
+    );
+    
+    if (confirm) {
+      try {
+        const result = await updateMemberRoleInGroup(member.membershipId, newRole, selectedGroup);
+        if (result.success) {
+          alert(`Đã ${newRole === 'admin' ? 'thăng chức' : 'giáng chức'} ${member.user.displayName}`);
+        } else {
+          alert(`Lỗi: ${result.error}`);
+        }
+      } catch (error) {
+        console.error('Error updating member role:', error);
+        alert('Có lỗi xảy ra khi cập nhật quyền');
+      }
+    }
+  };
+
+  // Invite member functions (simplified for now)
   const handleInviteMember = () => {
     if (inviteEmail.trim()) {
-      console.log('Inviting member:', inviteEmail);
-      // In real app, this would call API to send invitation
-      alert(`Đã gửi lời mời đến: ${inviteEmail}`);
+      // TODO: Implement user search and invitation
+      alert('Chức năng thêm thành viên sẽ được phát triển trong phiên bản tiếp theo');
       setInviteEmail('');
       setShowInviteModal(false);
+    }
+  };
+
+  // Group management functions
+  const handleDeleteGroup = async () => {
+    if (!selectedGroup) return;
+    
+    try {
+      const result = await deleteGroup(selectedGroup);
+      if (result.success) {
+        onClose(); // Close sidebar
+      } else {
+        alert(`Lỗi: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      alert('Có lỗi xảy ra khi xóa nhóm');
+    } finally {
+      setShowDeleteGroupModal(false);
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!selectedGroup) return;
+    
+    try {
+      const result = await leaveGroup(selectedGroup);
+      if (result.success) {
+        onClose(); // Close sidebar
+      } else {
+        alert(`Lỗi: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      alert('Có lỗi xảy ra khi rời nhóm');
+    } finally {
+      setShowLeaveGroupModal(false);
     }
   };
 
@@ -184,21 +309,24 @@ const GroupSidebar = ({ group, user, onClose }) => {
           <div className="flex items-center space-x-4">
             <div className="relative">
               <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg">
-                {group?.avatar ? (
-                  <img src={group.avatar} alt={group.name} className="w-full h-full object-cover" />
+                {currentGroup?.groupPhotoUrl ? (
+                  <img src={currentGroup.groupPhotoUrl} alt={currentGroup.name} className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-white font-bold text-xl">
-                    {group?.name?.charAt(0).toUpperCase() || 'G'}
+                    {currentGroup?.name?.charAt(0).toUpperCase() || 'G'}
                   </span>
                 )}
               </div>
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="text-lg font-bold text-white truncate">{group?.name || 'Tên nhóm'}</h4>
+                <h4 className="text-lg font-bold text-white truncate">{currentGroup?.name || 'Tên nhóm'}</h4>
+                {isGroupCreator() && (
+                  <Crown className="h-4 w-4 text-yellow-300" />
+                )}
               </div>
               <p className="text-emerald-100 text-sm">
-                {members.length} thành viên
+                {groupMembers?.length || 0} thành viên
               </p>
             </div>
           </div>
@@ -237,7 +365,7 @@ const GroupSidebar = ({ group, user, onClose }) => {
           <div className="flex-1 flex flex-col">
             <div className="p-4 border-b border-gray-200 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Thành viên ({members.length})</h3>
+                <h3 className="font-semibold text-gray-900">Thành viên ({groupMembers?.length || 0})</h3>
                 <button
                   onClick={() => setShowInviteModal(true)}
                   className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-sm"
@@ -258,15 +386,15 @@ const GroupSidebar = ({ group, user, onClose }) => {
 
             <div className="flex-1 overflow-y-auto">
               <div className="p-4 space-y-3">
-                {members.map((member) => (
-                  <div key={member.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors">
+                {groupMembers?.map((member) => (
+                  <div key={member.membershipId} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors">
                     <div className="flex items-center space-x-3 flex-1 min-w-0">
                       <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center overflow-hidden">
-                        {member.avatar ? (
-                          <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" />
+                        {member.user.avatar ? (
+                          <img src={member.user.avatar} alt={member.user.displayName} className="w-full h-full object-cover" />
                         ) : (
                           <span className="text-emerald-600 font-semibold text-lg">
-                            {member.name.charAt(0).toUpperCase()}
+                            {member.user.displayName?.charAt(0).toUpperCase() || '?'}
                           </span>
                         )}
                       </div>
@@ -274,27 +402,42 @@ const GroupSidebar = ({ group, user, onClose }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium text-gray-900 truncate">
-                            {member.name}
+                            {member.user.displayName}#{member.user.userTag}
                           </p>
-                          {member.isCreator && (
-                            <Crown className="h-4 w-4 text-yellow-500" />
+                          {member.userId === currentGroup?.creatorId && (
+                            <Crown className="h-4 w-4 text-yellow-500" title="Người tạo nhóm" />
                           )}
                         </div>
                         <p className="text-xs text-gray-500 capitalize">
                           {member.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}
                         </p>
+                        <p className="text-xs text-gray-400">
+                          {member.user.email}
+                        </p>
                       </div>
                     </div>
                     
-                    {/* Kick button - only for admin and not creator */}
-                    {isCurrentUserAdmin() && !member.isCreator && (
-                      <button
-                        onClick={() => handleKickMember(member)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Kick thành viên"
-                      >
-                        <UserX className="h-4 w-4" />
-                      </button>
+                    {/* Action buttons - only for admin and not for group creator */}
+                    {isUserAdmin() && member.userId !== currentGroup?.creatorId && member.userId !== user?.uid && (
+                      <div className="flex items-center gap-1">
+                        {/* Change role button */}
+                        <button
+                          onClick={() => handleChangeRole(member)}
+                          className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                          title={member.role === 'admin' ? 'Giáng chức thành viên' : 'Thăng chức quản trị viên'}
+                        >
+                          <Shield className="h-4 w-4" />
+                        </button>
+                        
+                        {/* Remove member button */}
+                        <button
+                          onClick={() => handleKickMember(member)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Xóa khỏi nhóm"
+                        >
+                          <UserX className="h-4 w-4" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -426,13 +569,19 @@ const GroupSidebar = ({ group, user, onClose }) => {
                 
                 <div className="border-t border-gray-200 pt-3 space-y-2">
                   {isCurrentUserAdmin() && (
-                    <button className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 transition-colors text-left">
+                    <button 
+                      onClick={() => setShowDeleteGroupModal(true)}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 transition-colors text-left"
+                    >
                       <Trash2 className="h-4 w-4 text-red-500" />
                       <span className="text-sm text-red-600">Xóa nhóm</span>
                     </button>
                   )}
                   
-                  <button className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-orange-50 transition-colors text-left">
+                  <button 
+                    onClick={() => setShowLeaveGroupModal(true)}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-orange-50 transition-colors text-left"
+                  >
                     <LogOut className="h-4 w-4 text-orange-500" />
                     <span className="text-sm text-orange-600">Rời nhóm</span>
                   </button>
@@ -456,7 +605,7 @@ const GroupSidebar = ({ group, user, onClose }) => {
               </div>
               
               <p className="text-gray-600 mb-6">
-                Bạn có chắc chắn muốn kick <strong>{selectedMember?.name}</strong> khỏi nhóm không?
+                Bạn có chắc chắn muốn xóa <strong>{selectedMember?.user?.displayName}#{selectedMember?.user?.userTag}</strong> khỏi nhóm không?
                 Họ sẽ không thể truy cập nhóm này nữa.
               </p>
               
@@ -532,6 +681,78 @@ const GroupSidebar = ({ group, user, onClose }) => {
                   className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Gửi lời mời
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Group Confirmation Modal */}
+      {showDeleteGroupModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                  <Trash2 className="h-5 w-5 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">Xóa nhóm</h3>
+              </div>
+              
+              <p className="text-gray-600 mb-6">
+                Bạn có chắc chắn muốn xóa nhóm <strong>{currentGroup?.name}</strong> không?
+                Tất cả thành viên sẽ bị xóa khỏi nhóm và không thể khôi phục.
+              </p>
+              
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowDeleteGroupModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleDeleteGroup}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                >
+                  Xóa nhóm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Leave Group Confirmation Modal */}
+      {showLeaveGroupModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <LogOut className="h-5 w-5 text-orange-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">Rời nhóm</h3>
+              </div>
+              
+              <p className="text-gray-600 mb-6">
+                Bạn có chắc chắn muốn rời khỏi nhóm <strong>{currentGroup?.name}</strong> không?
+                Bạn sẽ không thể truy cập nhóm này nữa trừ khi được mời lại.
+              </p>
+              
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowLeaveGroupModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleLeaveGroup}
+                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                >
+                  Rời nhóm
                 </button>
               </div>
             </div>

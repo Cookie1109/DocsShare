@@ -42,8 +42,10 @@ const checkDocumentOwnership = (req, res, next) => {
   next();
 };
 
-module.exports = {
-  authenticateToken,
-  requireAdmin,
-  checkDocumentOwnership
-};
+// Export default auth middleware
+module.exports = authenticateToken;
+
+// Export named exports for specific middleware
+module.exports.authenticateToken = authenticateToken;
+module.exports.requireAdmin = requireAdmin;
+module.exports.checkDocumentOwnership = checkDocumentOwnership;

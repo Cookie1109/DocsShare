@@ -24,10 +24,16 @@ import {
   X,
   Crown
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import TagSelector from './TagSelector';
 import GroupSidebar from './GroupSidebar';
 
-const ChatArea = ({ selectedGroup, user }) => {
+const ChatArea = ({ user }) => {
+  // Get selectedGroup from AuthContext
+  const { selectedGroup, userGroups } = useAuth();
+  
+  // Get current group object
+  const currentGroup = userGroups.find(g => g.id === selectedGroup);
   // Tag management - Chủ đề rau củ quả
   const [availableTags, setAvailableTags] = useState([
     { id: '1', name: 'Học tập', color: 'bg-emerald-500' }, // Màu lá xanh
@@ -117,6 +123,7 @@ const ChatArea = ({ selectedGroup, user }) => {
 
   // Search and sidebar state
   const [showGroupSidebar, setShowGroupSidebar] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState('none'); // 'none', 'groupInfo'
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredDocuments, setFilteredDocuments] = useState([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -363,32 +370,32 @@ const ChatArea = ({ selectedGroup, user }) => {
 
   return (
     <div className="h-full flex bg-green-50 overflow-hidden relative">
-      <div className={`${showGroupSidebar ? 'w-[calc(100%-384px)]' : 'w-full'} flex flex-col min-w-0 transition-all duration-300 ease-in-out`}>
+      <div className={`${sidebarMode !== 'none' ? 'w-[calc(100%-384px)]' : 'w-full'} flex flex-col min-w-0 transition-all duration-300 ease-in-out`}>
       {/* Header - Professional Style */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm flex-shrink-0">
         <div className="flex items-center justify-between">
           {/* Left: Group Info */}
           <div className="flex items-center space-x-3 min-w-0 flex-1">
             <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center border-2 border-white overflow-hidden">
-              {selectedGroup?.avatar ? (
-                <img src={selectedGroup.avatar} alt={selectedGroup.name} className="w-full h-full object-cover" />
+              {currentGroup?.groupPhotoUrl ? (
+                <img src={currentGroup.groupPhotoUrl} alt={currentGroup.name} className="w-full h-full object-cover" />
               ) : (
                 <span className="text-white font-semibold text-sm">
-                  {selectedGroup?.name?.charAt(0).toUpperCase() || 'G'}
+                  {currentGroup?.name?.charAt(0).toUpperCase() || 'G'}
                 </span>
               )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-gray-800 truncate">
-                  {selectedGroup?.name || 'Nhóm Chat'}
+                  {currentGroup?.name || 'Chọn nhóm để bắt đầu'}
                 </h3>
                 <div className="w-2 h-2 bg-green-400 rounded-full"></div>
               </div>
               <div className="flex items-center gap-3 text-sm text-gray-600">
                 <span className="flex items-center gap-1">
                   <Users className="w-4 h-4" />
-                  {selectedGroup?.memberCount || 1} thành viên
+                  {currentGroup ? '?' : '0'} thành viên
                 </span>
                 <span>•</span>
                 <span>Hoạt động</span>
@@ -517,18 +524,22 @@ const ChatArea = ({ selectedGroup, user }) => {
               )}
             </div>
 
-            {/* Group Settings Toggle */}
-            <button
-              onClick={() => setShowGroupSidebar(!showGroupSidebar)}
-              className={`p-2 rounded-full transition-all duration-200 ${
-                showGroupSidebar 
-                  ? 'text-emerald-600 bg-emerald-100' 
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
-              }`}
-              title="Thông tin nhóm"
-            >
-              <MoreVertical className="h-4 w-4" />
-            </button>
+
+
+            {/* Group Settings Toggle - only show if a group is selected */}
+            {currentGroup && (
+              <button
+                onClick={() => setSidebarMode(sidebarMode === 'groupInfo' ? 'none' : 'groupInfo')}
+                className={`p-2 rounded-full transition-all duration-200 ${
+                  sidebarMode === 'groupInfo' 
+                    ? 'text-emerald-600 bg-emerald-100' 
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
+                }`}
+                title="Thông tin nhóm"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -541,8 +552,21 @@ const ChatArea = ({ selectedGroup, user }) => {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {/* Welcome message for empty groups */}
-        {getCurrentGroupDocuments().length === 0 ? (
+        {/* Welcome message */}
+        {!currentGroup ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center max-w-md mx-auto p-8">
+              <Users className="w-24 h-24 text-gray-300 mx-auto mb-6" />
+              <h3 className="text-2xl font-bold text-gray-800 mb-3">
+                Chào mừng đến với DocsShare! 👋
+              </h3>
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                Chọn một nhóm từ sidebar bên trái để bắt đầu chia sẻ tài liệu, hoặc tạo nhóm mới nếu bạn chưa có nhóm nào.
+              </p>
+
+            </div>
+          </div>
+        ) : getCurrentGroupDocuments().length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-md mx-auto p-8">
               <div className="w-24 h-24 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-6 overflow-hidden shadow-lg">
@@ -555,14 +579,14 @@ const ChatArea = ({ selectedGroup, user }) => {
                 )}
               </div>
               <h3 className="text-2xl font-bold text-orange-800 mb-3">
-                Chào mừng đến với {selectedGroup?.name || 'nhóm'}! 🎉
+                Chào mừng đến với {currentGroup?.name || 'nhóm'}! 🎉
               </h3>
               <p className="text-gray-700 mb-4 leading-relaxed">
-                Nhóm này được tạo bởi <strong className="text-orange-800">{selectedGroup?.createdBy || 'Admin'}</strong> vào {new Date(selectedGroup?.createdAt || Date.now()).toLocaleDateString('vi-VN')}
+                Nhóm này được tạo vào {currentGroup?.createdAt ? new Date(currentGroup.createdAt.seconds * 1000).toLocaleDateString('vi-VN') : 'hôm nay'}
               </p>
               <div className="bg-orange-50 rounded-xl p-4 mb-6 border border-orange-200">
                 <p className="text-orange-700 text-sm">
-                  🎯 <strong>Thành viên:</strong> {selectedGroup?.memberCount || 0} người<br/>
+                  🎯 <strong>Vai trò của bạn:</strong> {currentGroup?.userRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}<br/>
                   📚 <strong>Mục tiêu:</strong> Chia sẻ tài liệu học tập và làm việc hiệu quả<br/>
                   🌱 Bắt đầu chia sẻ file đầu tiên để khởi động cuộc trò chuyện!
                 </p>
@@ -747,12 +771,13 @@ const ChatArea = ({ selectedGroup, user }) => {
       />
       </div>
 
-      {/* Group Sidebar - inline với chat */}
-      {showGroupSidebar && (
+      {/* Sidebars */}
+
+
+      {sidebarMode === 'groupInfo' && currentGroup && (
         <GroupSidebar 
-          group={selectedGroup}
-          user={user}
-          onClose={() => setShowGroupSidebar(false)}
+          group={currentGroup}
+          onClose={() => setSidebarMode('none')}
         />
       )}
 

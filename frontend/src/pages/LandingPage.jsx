@@ -44,6 +44,10 @@ const LandingPage = () => {
     password: '',
     confirmPassword: ''
   });
+  
+  // Error state for register
+  const [registerError, setRegisterError] = useState('');
+  const [hasRegisterError, setHasRegisterError] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -81,16 +85,29 @@ const LandingPage = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    // Reset error state
+    setRegisterError('');
+    setHasRegisterError(false);
+    
+    // Validation
     if (registerData.password !== registerData.confirmPassword) {
-      alert('Mật khẩu không khớp!');
+      setRegisterError('Mật khẩu không khớp!');
+      setHasRegisterError(true);
       return;
     }
     if (!registerData.displayName.trim() || !registerData.userTag.trim()) {
-      alert('Vui lòng nhập đầy đủ tên và tag!');
+      setRegisterError('Vui lòng nhập đầy đủ tên và tag!');
+      setHasRegisterError(true);
       return;
     }
     if (!registerData.email.trim()) {
-      alert('Vui lòng nhập email!');
+      setRegisterError('Vui lòng nhập email!');
+      setHasRegisterError(true);
+      return;
+    }
+    if (registerData.password.length < 6) {
+      setRegisterError('Mật khẩu phải có ít nhất 6 ký tự!');
+      setHasRegisterError(true);
       return;
     }
     
@@ -100,11 +117,13 @@ const LandingPage = () => {
         setShowRegisterModal(false);
         navigate('/chat');
       } else {
-        alert(result.error || 'Đăng ký thất bại');
+        setRegisterError(result.error || 'Đăng ký thất bại');
+        setHasRegisterError(true);
       }
     } catch (error) {
       console.error('Register error:', error);
-      alert('Đăng ký thất bại');
+      setRegisterError('Đã xảy ra lỗi không mong muốn');
+      setHasRegisterError(true);
     }
   };
 
@@ -115,11 +134,13 @@ const LandingPage = () => {
         setShowRegisterModal(false);
         navigate('/chat');
       } else {
-        alert(result.error || 'Đăng ký Google thất bại');
+        setRegisterError(result.error || 'Đăng ký Google thất bại');
+        setHasRegisterError(true);
       }
     } catch (error) {
       console.error('Google register error:', error);
-      alert('Đăng ký Google thất bại');
+      setRegisterError('Đăng ký Google thất bại');
+      setHasRegisterError(true);
     }
   };
 
@@ -273,6 +294,20 @@ const LandingPage = () => {
               <div className="flex-1 border-t border-gray-200"></div>
             </div>
 
+            {/* Error Message */}
+            {hasLoginError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <X className="h-4 w-4 text-red-400" />
+                  </div>
+                  <div className="ml-2">
+                    <p className="text-sm text-red-700">{loginError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <div className="relative">
@@ -281,8 +316,17 @@ const LandingPage = () => {
                     type="email"
                     placeholder="Tài khoản"
                     value={loginData.email}
-                    onChange={(e) => setLoginData({...loginData, email: e.target.value})}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setLoginData({...loginData, email: e.target.value});
+                      // Reset error when user starts typing
+                      if (hasLoginError) {
+                        setHasLoginError(false);
+                        setLoginError('');
+                      }
+                    }}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${
+                      hasLoginError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
                 </div>
@@ -295,8 +339,17 @@ const LandingPage = () => {
                     type={showPassword ? "text" : "password"}
                     placeholder="Mật khẩu"
                     value={loginData.password}
-                    onChange={(e) => setLoginData({...loginData, password: e.target.value})}
-                    className="w-full pl-10 pr-12 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setLoginData({...loginData, password: e.target.value});
+                      // Reset error when user starts typing
+                      if (hasLoginError) {
+                        setHasLoginError(false);
+                        setLoginError('');
+                      }
+                    }}
+                    className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${
+                      hasLoginError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
                   <button
@@ -372,6 +425,20 @@ const LandingPage = () => {
               <div className="flex-1 border-t border-gray-200"></div>
             </div>
 
+            {/* Error Message */}
+            {hasRegisterError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <X className="h-4 w-4 text-red-400" />
+                  </div>
+                  <div className="ml-2">
+                    <p className="text-sm text-red-700">{registerError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleRegister} className="space-y-4">
               {/* Username với format Name#Tag */}
               <div className="grid grid-cols-2 gap-3">
@@ -381,8 +448,17 @@ const LandingPage = () => {
                     type="text"
                     placeholder="Tên hiển thị"
                     value={registerData.displayName}
-                    onChange={(e) => setRegisterData({...registerData, displayName: e.target.value})}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setRegisterData({...registerData, displayName: e.target.value});
+                      // Reset error when user starts typing
+                      if (hasRegisterError) {
+                        setHasRegisterError(false);
+                        setRegisterError('');
+                      }
+                    }}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${
+                      hasRegisterError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
                 </div>
@@ -392,8 +468,17 @@ const LandingPage = () => {
                     type="text"
                     placeholder="1109"
                     value={registerData.userTag}
-                    onChange={(e) => setRegisterData({...registerData, userTag: e.target.value})}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setRegisterData({...registerData, userTag: e.target.value});
+                      // Reset error when user starts typing
+                      if (hasRegisterError) {
+                        setHasRegisterError(false);
+                        setRegisterError('');
+                      }
+                    }}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${
+                      hasRegisterError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
                 </div>
@@ -416,8 +501,17 @@ const LandingPage = () => {
                     type="email"
                     placeholder="Tài khoản"
                     value={registerData.email}
-                    onChange={(e) => setRegisterData({...registerData, email: e.target.value})}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setRegisterData({...registerData, email: e.target.value});
+                      // Reset error when user starts typing
+                      if (hasRegisterError) {
+                        setHasRegisterError(false);
+                        setRegisterError('');
+                      }
+                    }}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${
+                      hasRegisterError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
                 </div>
@@ -432,8 +526,17 @@ const LandingPage = () => {
                     type={showPassword ? "text" : "password"}
                     placeholder="Mật khẩu"
                     value={registerData.password}
-                    onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
-                    className="w-full pl-10 pr-12 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setRegisterData({...registerData, password: e.target.value});
+                      // Reset error when user starts typing
+                      if (hasRegisterError) {
+                        setHasRegisterError(false);
+                        setRegisterError('');
+                      }
+                    }}
+                    className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${
+                      hasRegisterError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
                   <button
@@ -453,8 +556,17 @@ const LandingPage = () => {
                     type={showConfirmPassword ? "text" : "password"}
                     placeholder="Xác nhận mật khẩu"
                     value={registerData.confirmPassword}
-                    onChange={(e) => setRegisterData({...registerData, confirmPassword: e.target.value})}
-                    className="w-full pl-10 pr-12 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setRegisterData({...registerData, confirmPassword: e.target.value});
+                      // Reset error when user starts typing
+                      if (hasRegisterError) {
+                        setHasRegisterError(false);
+                        setRegisterError('');
+                      }
+                    }}
+                    className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${
+                      hasRegisterError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                    }`}
                     required
                   />
                   <button

@@ -1,22 +1,30 @@
+# =================================================================
+# DOCSSHARE GITIGNORE
+# =================================================================
+
+# Environment Variables (CRITICAL - Never commit!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
 # Dependencies
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
 # Build outputs
 dist/
 dist-ssr/
 build/
 *.local
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.vite/
+.next/
+out/
 
 # Logs
 logs/
@@ -105,6 +113,24 @@ firebase-debug.*.log
 # Temporary files
 tmp/
 temp/
+
+# Backend specific
+backend/uploads/
+uploads/
+*.pem
+*.key
+*.crt
+
+# Migration files (temporary)
+*migrate*.js
+*migration*.js
+
+# Documentation drafts
+*.draft.md
+
+# Security files (NEVER COMMIT!)
+firebase-service-account.json
+*.p12
 
 # OS generated files
 *.tmp

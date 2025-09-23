@@ -6,7 +6,15 @@ import {
   signOutUser, 
   onAuthStateChange,
   getUserData,
-  checkUsernameExists
+  checkUsernameExists,
+  createGroup,
+  getUserGroups,
+  getGroupMembers,
+  addGroupMember,
+  removeGroupMember,
+  getUserRoleInGroup,
+  updateMemberRole,
+  deleteGroupFromFirestore
 } from '../services/firebase';
 
 const AuthContext = createContext();
@@ -22,6 +30,9 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [userGroups, setUserGroups] = useState([]);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [groupMembers, setGroupMembers] = useState([]);
 
   // Firebase auth state listener
   useEffect(() => {
@@ -37,12 +48,22 @@ export const AuthProvider = ({ children }) => {
         }
       } else {
         setUser(null);
+        setUserGroups([]);
+        setSelectedGroup(null);
+        setGroupMembers([]);
       }
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  // Load user groups when user changes
+  useEffect(() => {
+    if (user?.uid) {
+      loadUserGroups();
+    }
+  }, [user?.uid]);
 
   const login = async (email, password) => {
     try {
@@ -57,13 +78,17 @@ export const AuthProvider = ({ children }) => {
             ...userData.data
           });
           return { success: true };
+        } else {
+          // User authenticated but no user data found
+          return { success: false, error: 'Không thể lấy thông tin người dùng' };
         }
       }
       
-      return { success: false, error: result.error || 'Đăng nhập thất bại' };
+      // Return specific error from Firebase service
+      return { success: false, error: result.error };
     } catch (error) {
       console.error('Login error:', error);
-      return { success: false, error: 'Email hoặc mật khẩu không đúng' };
+      return { success: false, error: 'Đã xảy ra lỗi không mong muốn' };
     }
   };
 
@@ -151,6 +176,169 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Group management functions
+  const loadUserGroups = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      const result = await getUserGroups(user.uid);
+      if (result.success) {
+        setUserGroups(result.groups || []);
+      }
+    } catch (error) {
+      console.error('Error loading user groups:', error);
+    }
+  };
+
+  const createNewGroup = async (groupName, groupPhotoUrl = null) => {
+    if (!user?.uid) return { success: false, error: 'User not authenticated' };
+    
+    try {
+      const result = await createGroup(groupName, user.uid, groupPhotoUrl);
+      if (result.success) {
+        await loadUserGroups(); // Refresh groups list
+      }
+      return result;
+    } catch (error) {
+      console.error('Error creating group:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const selectGroup = async (groupId) => {
+    setSelectedGroup(groupId);
+    if (groupId) {
+      await loadGroupMembers(groupId);
+    } else {
+      setGroupMembers([]);
+    }
+  };
+
+  const loadGroupMembers = async (groupId) => {
+    try {
+      const result = await getGroupMembers(groupId);
+      if (result.success) {
+        setGroupMembers(result.members || []);
+      }
+    } catch (error) {
+      console.error('Error loading group members:', error);
+    }
+  };
+
+  const addMemberToGroup = async (groupId, userId, role = 'member') => {
+    try {
+      const result = await addGroupMember(groupId, userId, role);
+      if (result.success && selectedGroup === groupId) {
+        await loadGroupMembers(groupId); // Refresh members list
+      }
+      return result;
+    } catch (error) {
+      console.error('Error adding member:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const removeMemberFromGroup = async (membershipId, groupId) => {
+    try {
+      const result = await removeGroupMember(membershipId);
+      if (result.success && selectedGroup === groupId) {
+        await loadGroupMembers(groupId); // Refresh members list
+      }
+      return result;
+    } catch (error) {
+      console.error('Error removing member:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const updateMemberRoleInGroup = async (membershipId, newRole, groupId) => {
+    try {
+      const result = await updateMemberRole(membershipId, newRole);
+      if (result.success && selectedGroup === groupId) {
+        await loadGroupMembers(groupId); // Refresh members list
+      }
+      return result;
+    } catch (error) {
+      console.error('Error updating member role:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const checkUserRole = async (groupId, userId) => {
+    try {
+      return await getUserRoleInGroup(groupId, userId);
+    } catch (error) {
+      console.error('Error checking user role:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const deleteGroup = async (groupId) => {
+    if (!user?.uid) return { success: false, error: 'User not authenticated' };
+    
+    try {
+      // Check if user is admin/creator
+      const roleCheck = await checkUserRole(groupId, user.uid);
+      if (!roleCheck.success || roleCheck.role !== 'admin') {
+        return { success: false, error: 'Only admin can delete group' };
+      }
+
+      // Delete group from Firestore
+      const result = await deleteGroupFromFirestore(groupId);
+      if (result.success) {
+        await loadUserGroups(); // Refresh groups list
+        if (selectedGroup === groupId) {
+          setSelectedGroup(null);
+          setGroupMembers([]);
+        }
+      }
+      return result;
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const leaveGroup = async (groupId) => {
+    if (!user?.uid) return { success: false, error: 'User not authenticated' };
+    
+    try {
+      // Find user's membership
+      const userMember = groupMembers.find(member => member.userId === user.uid);
+      if (!userMember) {
+        return { success: false, error: 'You are not a member of this group' };
+      }
+
+      // Check if this is the last member in the group
+      if (groupMembers.length === 1) {
+        // If only one member left, delete the entire group
+        const deleteResult = await deleteGroupFromFirestore(groupId);
+        if (deleteResult.success) {
+          await loadUserGroups(); // Refresh groups list
+          if (selectedGroup === groupId) {
+            setSelectedGroup(null);
+            setGroupMembers([]);
+          }
+        }
+        return deleteResult;
+      } else {
+        // Remove user from group normally
+        const result = await removeMemberFromGroup(userMember.membershipId, groupId);
+        if (result.success) {
+          await loadUserGroups(); // Refresh groups list
+          if (selectedGroup === groupId) {
+            setSelectedGroup(null);
+            setGroupMembers([]);
+          }
+        }
+        return result;
+      }
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -159,6 +347,21 @@ export const AuthProvider = ({ children }) => {
     logout,
     loginWithGoogle,
     updateProfile,
+    
+    // Groups
+    userGroups,
+    selectedGroup,
+    groupMembers,
+    loadUserGroups,
+    createNewGroup,
+    selectGroup,
+    loadGroupMembers,
+    addMemberToGroup,
+    removeMemberFromGroup,
+    updateMemberRoleInGroup,
+    checkUserRole,
+    deleteGroup,
+    leaveGroup
   };
 
   return (

@@ -1,51 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Users, FileText, MoreVertical, Hash } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
-const ChatSidebar = ({ user, selectedGroup, onSelectGroup }) => {
+const ChatSidebar = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const groupsListRef = useRef(null);
   const groupRefs = useRef({});
-  const [groups, setGroups] = useState([
-    {
-      id: '1',
-      name: 'Lập trình React',
-      avatar: null,
-      memberCount: 24,
-      lastDocument: {
-        name: 'React Hooks Guide.pdf',
-        time: '14:30',
-        uploader: 'Nguyễn Văn A'
-      },
-      unreadCount: 3,
-      type: 'group'
-    },
-    {
-      id: '2', 
-      name: 'Toán cao cấp A1',
-      avatar: null,
-      memberCount: 45,
-      lastDocument: {
-        name: 'Bài tập chương 3.docx',
-        time: '09:15',
-        uploader: 'Trần Thị B'
-      },
-      unreadCount: 0,
-      type: 'group'
-    },
-    {
-      id: '3',
-      name: 'Tài liệu CNTT',
-      avatar: null,
-      memberCount: 67,
-      lastDocument: {
-        name: 'Database Design.pptx',
-        time: 'Hôm qua',
-        uploader: 'Lê Văn C'
-      },
-      unreadCount: 1,
-      type: 'group'
-    }
-  ]);
+  
+  // Use real groups from AuthContext
+  const { userGroups, selectGroup, selectedGroup, createNewGroup, user } = useAuth();
+  const groups = userGroups;
 
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
@@ -56,24 +20,13 @@ const ChatSidebar = ({ user, selectedGroup, onSelectGroup }) => {
     group.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Handle group selection with search reset and scroll
-  const handleGroupSelect = (group) => {
+  // Handle group selection
+  const handleGroupSelect = async (group) => {
     // Reset search query
     setSearchQuery('');
     
-    // Call the original onSelectGroup
-    onSelectGroup(group);
-    
-    // Scroll to the group in the full list after a small delay
-    setTimeout(() => {
-      const groupElement = groupRefs.current[group.id];
-      if (groupElement && groupsListRef.current) {
-        groupElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center'
-        });
-      }
-    }, 100);
+    // Select group in AuthContext (this will load members)
+    await selectGroup(group.id);
   };
 
   const handleImageChange = (e) => {
@@ -87,28 +40,27 @@ const ChatSidebar = ({ user, selectedGroup, onSelectGroup }) => {
     }
   };
 
-  const handleCreateGroup = () => {
-    const groupName = newGroupName.trim() || `Nhóm của ${user?.name || 'Bạn'}`;
+  const handleCreateGroup = async () => {
+    const groupName = newGroupName.trim() || `Nhóm của ${user?.displayName || user?.email || 'Bạn'}`;
     
-    const newGroup = {
-      id: Date.now().toString(),
-      name: groupName,
-      avatar: imagePreview, // Use preview URL for display
-      memberCount: 1,
-      lastDocument: null,
-      unreadCount: 0,
-      type: 'group',
-      createdBy: user?.name || 'Bạn',
-      createdAt: new Date().toISOString()
-    };
-    
-    setGroups([...groups, newGroup]);
-    
-    // Reset form
-    setNewGroupName('');
-    setNewGroupImage(null);
-    setImagePreview(null);
-    setShowCreateGroup(false);
+    try {
+      // Use createNewGroup from AuthContext
+      const result = await createNewGroup(groupName, imagePreview);
+      
+      if (result.success) {
+        // Reset form
+        setNewGroupName('');
+        setNewGroupImage(null);
+        setImagePreview(null);
+        setShowCreateGroup(false);
+      } else {
+        console.error('Failed to create group:', result.error);
+        alert('Có lỗi xảy ra khi tạo nhóm: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Error creating group:', error);
+      alert('Có lỗi xảy ra khi tạo nhóm');
+    }
   };
 
   return (
@@ -141,81 +93,88 @@ const ChatSidebar = ({ user, selectedGroup, onSelectGroup }) => {
 
       {/* Groups List */}
       <div ref={groupsListRef} className="flex-1 overflow-y-auto">
-        {(searchQuery ? filteredGroups : groups).map((group) => (
-          <div
-            key={group.id}
-            ref={el => groupRefs.current[group.id] = el}
-            onClick={() => handleGroupSelect(group)}
-            className={`p-4 border-b border-gray-100 cursor-pointer transition-all hover:bg-green-50 ${
-              selectedGroup?.id === group.id 
-                ? 'bg-green-100 border-l-4 border-l-green-500' 
-                : 'hover:bg-green-50'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3 flex-1 min-w-0">
-                {/* Group Avatar */}
-                <div className="flex-shrink-0">
-                  <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center overflow-hidden">
-                    {group.avatar ? (
-                      <img src={group.avatar} alt={group.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-white font-semibold">
-                        {group.name.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Group Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-900 truncate text-sm">
-                      {group.name}
-                    </h3>
-                    {group.lastDocument && (
-                      <span className="text-xs text-gray-500 ml-2">
-                        {group.lastDocument.time}
-                      </span>
-                    )}
+        {groups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+            <Users className="w-16 h-16 text-gray-300 mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Chưa có nhóm nào</h3>
+            <p className="text-gray-500 mb-4">
+              Tạo nhóm đầu tiên để bắt đầu chia sẻ tài liệu
+            </p>
+            <button
+              onClick={() => setShowCreateGroup(true)}
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              Tạo nhóm mới
+            </button>
+          </div>
+        ) : (
+          (searchQuery ? filteredGroups : groups).map((group) => (
+            <div
+              key={group.id}
+              ref={el => groupRefs.current[group.id] = el}
+              onClick={() => handleGroupSelect(group)}
+              className={`p-4 border-b border-gray-100 cursor-pointer transition-all hover:bg-green-50 ${
+                selectedGroup?.id === group.id 
+                  ? 'bg-green-100 border-l-4 border-l-green-500' 
+                  : 'hover:bg-green-50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3 flex-1 min-w-0">
+                  {/* Group Avatar */}
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center overflow-hidden">
+                      {group.groupPhotoUrl ? (
+                        <img src={group.groupPhotoUrl} alt={group.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-white font-semibold">
+                          {group.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   
-                  <div className="flex items-center justify-between mt-1">
-                    <div className="flex items-center space-x-2">
-                      <Users className="h-3 w-3 text-gray-400" />
-                      <span className="text-xs text-gray-500">
-                        {group.memberCount} thành viên
-                      </span>
+                  {/* Group Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-gray-900 truncate text-sm">
+                        {group.name}
+                      </h3>
+                      {group.createdAt && (
+                        <span className="text-xs text-gray-500 ml-2">
+                          {new Date(group.createdAt.seconds * 1000).toLocaleDateString('vi-VN')}
+                        </span>
+                      )}
                     </div>
                     
-                    {group.unreadCount > 0 && (
-                      <span className="bg-green-500 text-white text-xs rounded-full px-2 py-0.5 font-medium">
-                        {group.unreadCount}
-                      </span>
+                    <div className="flex items-center justify-between mt-1">
+                      <div className="flex items-center space-x-2">
+                        <Users className="h-3 w-3 text-gray-400" />
+                        <span className="text-xs text-gray-500">
+                          {group.userRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}
+                        </span>
+                      </div>
+                      
+                      {group.creatorId === user?.uid && (
+                        <span className="bg-yellow-500 text-white text-xs rounded-full px-2 py-0.5 font-medium">
+                          Chủ nhóm
+                        </span>
+                      )}
+                    </div>
+                    
+                    {group.lastDocument && (
+                      <div className="mt-1">
+                        <p className="text-xs text-gray-600 truncate">
+                          <FileText className="h-3 w-3 inline mr-1" />
+                          {group.lastDocument.name}
+                        </p>
+                      </div>
                     )}
                   </div>
-                  
-                  {group.lastDocument && (
-                    <div className="mt-1">
-                      <p className="text-xs text-gray-600 truncate">
-                        <FileText className="h-3 w-3 inline mr-1" />
-                        {group.lastDocument.name}
-                      </p>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
-          </div>
-        ))}
-
-        {filteredGroups.length === 0 && (
-          <div className="p-8 text-center">
-            <Hash className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">
-              {searchQuery ? 'Không tìm thấy nhóm nào' : 'Chưa có nhóm nào'}
-            </p>
-          </div>
+          ))
         )}
       </div>
 

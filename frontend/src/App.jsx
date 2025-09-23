@@ -67,13 +67,11 @@ const AppContent = () => {
         } />
 
         {/* Chat Route - Main feature */}
-        <Route path="/chat" element={
-          <ProtectedRoute>
-            <ChatPage />
-          </ProtectedRoute>
-        } />
-
-        {/* Protected Routes - will be added later */}
+          <Route path="/chat" element={
+            <ProtectedRoute>
+              <ChatPage />
+            </ProtectedRoute>
+          } />        {/* Protected Routes - will be added later */}
         <Route path="/documents" element={
           <ProtectedRoute>
             <Layout user={user} onLogout={logout}>

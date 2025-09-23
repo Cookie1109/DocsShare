@@ -6,14 +6,15 @@ import { Users, Settings, LogOut, User, Edit2, Camera, X } from 'lucide-react';
 import Logo from '../assets/Logo.png';
 
 const ChatPage = () => {
-  const [selectedGroup, setSelectedGroup] = useState(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showUserProfileModal, setShowUserProfileModal] = useState(false);
   const [userAvatar, setUserAvatar] = useState(null);
   const [userName, setUserName] = useState('');
   const [isEditing, setIsEditing] = useState(false);
-  const { user, logout, updateProfile } = useAuth();
   const fileInputRef = useRef(null);
+  
+  // Use AuthContext - consolidate all useAuth calls
+  const { selectedGroup, selectGroup, user, logout, updateProfile } = useAuth();
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -27,56 +28,7 @@ const ChatPage = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showUserMenu]);
 
-  // Auto-select first group when component mounts
-  useEffect(() => {
-    // Default groups (same as in ChatSidebar)
-    const defaultGroups = [
-      {
-        id: '1',
-        name: 'Lập trình React',
-        avatar: null,
-        memberCount: 24,
-        lastDocument: {
-          name: 'React Hooks Guide.pdf',
-          time: '14:30',
-          uploader: 'Nguyễn Văn A'
-        },
-        unreadCount: 3,
-        type: 'group'
-      },
-      {
-        id: '2', 
-        name: 'Toán cao cấp A1',
-        avatar: null,
-        memberCount: 45,
-        lastDocument: {
-          name: 'Bài tập chương 3.docx',
-          time: '09:15',
-          uploader: 'Trần Thị B'
-        },
-        unreadCount: 0,
-        type: 'group'
-      },
-      {
-        id: '3',
-        name: 'Tài liệu CNTT',
-        avatar: null,
-        memberCount: 67,
-        lastDocument: {
-          name: 'Database Design.pptx',
-          time: 'Hôm qua',
-          uploader: 'Lê Văn C'
-        },
-        unreadCount: 1,
-        type: 'group'
-      }
-    ];
 
-    // Auto-select first group when page loads
-    if (!selectedGroup && defaultGroups.length > 0) {
-      setSelectedGroup(defaultGroups[0]);
-    }
-  }, [selectedGroup]);
 
   // Initialize user data when modal opens
   useEffect(() => {
@@ -186,8 +138,6 @@ const ChatPage = () => {
         <div className="flex-1 overflow-hidden">
           <ChatSidebar 
             user={user}
-            selectedGroup={selectedGroup}
-            onSelectGroup={setSelectedGroup}
           />
         </div>
 
@@ -255,7 +205,6 @@ const ChatPage = () => {
       {/* Main Chat Area - Fixed height */}
       <div className="flex-1 flex flex-col overflow-hidden bg-white">
         <ChatArea 
-          selectedGroup={selectedGroup}
           user={user}
         />
       </div>
