@@ -158,18 +158,7 @@ const closeDatabase = async () => {
   }
 };
 
-// Handle process termination
-process.on('SIGINT', async () => {
-  console.log('\n🔄 Gracefully shutting down database connections...');
-  await closeDatabase();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('\n🔄 Gracefully shutting down database connections...');
-  await closeDatabase();
-  process.exit(0);
-});
+// Signal handlers completely removed for development stability
 
 // Export database utilities
 module.exports = {

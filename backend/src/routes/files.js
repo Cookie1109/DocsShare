@@ -1,107 +1,153 @@
 const express = require('express');
+const { 
+  createUploadSignature, 
+  saveFileMetadata, 
+  getGroupFiles
+  // debugUserGroups - temporarily removed to test
+} = require('../controllers/filesController');
+const verifyFirebaseToken = require('../middleware/firebaseAuth');
+
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const auth = require('../middleware/auth');
-const FileController = require('../controllers/fileController');
-const { storage } = require('../config/cloudinary');
-
-// Multer configuration với Cloudinary storage
-
-const fileFilter = (req, file, cb) => {
-  // Allowed file types
-  const allowedTypes = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain',
-    'text/csv',
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'application/zip',
-    'application/x-rar-compressed',
-    'application/json',
-    'text/markdown'
-  ];
-  
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('File type not allowed'), false);
-  }
-};
-
-const upload = multer({
-  storage: storage, // Cloudinary storage
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB max
-  }
-});
-
-// Middleware authentication cho tất cả routes
-router.use(auth);
 
 /**
- * File Management Routes
+ * Files API Routes - Signed Upload System
+ * Tất cả routes đều yêu cầu Firebase authentication
  */
 
-// Upload file mới
-router.post('/upload', upload.single('file'), FileController.uploadFile);
+/**
+ * POST /api/files/signature
+ * Tạo chữ ký upload an toàn cho Cloudinary
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Response:
+ *   {
+ *     "success": true,
+ *     "data": {
+ *       "signature": "abc123...",
+ *       "timestamp": 1696166400,
+ *       "api_key": "your_api_key",
+ *       "cloud_name": "your_cloud_name",
+ *       "folder": "docsshare/documents",
+ *       "resource_type": "auto"
+ *     }
+ *   }
+ */
+router.post('/signature', verifyFirebaseToken, createUploadSignature);
 
-// Tìm kiếm files
-router.get('/search', FileController.searchFiles);
+/**
+ * GET /api/files/debug/user-groups
+ * Debug endpoint để kiểm tra user groups
+ */
+// router.get('/debug/user-groups', verifyFirebaseToken, debugUserGroups); // Temporarily disabled
 
-// Lấy files được download nhiều nhất
-router.get('/popular', FileController.getPopularFiles);
+/**
+ * POST /api/files/metadata
+ * Lưu thông tin file và tags vào MySQL và Firestore
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ *   Content-Type: application/json
+ * 
+ * Body:
+ *   {
+ *     "name": "document.pdf",
+ *     "url": "https://res.cloudinary.com/...",
+ *     "size": 1024000,
+ *     "mimeType": "application/pdf",
+ *     "groupId": 123,
+ *     "tagIds": [1, 5, 12]
+ *   }
+ * 
+ * Response:
+ *   {
+ *     "success": true,
+ *     "data": {
+ *       "id": 456,
+ *       "name": "document.pdf",
+ *       "url": "https://res.cloudinary.com/...",
+ *       "size": 1024000,
+ *       "mimeType": "application/pdf",
+ *       "groupId": 123,
+ *       "uploader": {
+ *         "uid": "firebase_uid",
+ *         "name": "John Doe",
+ *         "email": "john@example.com"
+ *       },
+ *       "tags": [
+ *         {"id": 1, "name": "Báo Cáo"},
+ *         {"id": 5, "name": "Quan Trọng"}
+ *       ],
+ *       "downloadCount": 0,
+ *       "createdAt": "2023-10-01T12:00:00Z"
+ *     }
+ *   }
+ */
+router.post('/metadata', verifyFirebaseToken, saveFileMetadata);
 
-// Lấy files recent của user
-router.get('/recent', FileController.getRecentFiles);
+/**
+ * GET /api/files/group/:groupId
+ * Lấy danh sách files trong group (bonus endpoint)
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Response:
+ *   {
+ *     "success": true,
+ *     "data": [
+ *       {
+ *         "id": 456,
+ *         "name": "document.pdf",
+ *         "url": "https://res.cloudinary.com/...",
+ *         "uploader": {...},
+ *         "tags": [...],
+ *         "createdAt": "2023-10-01T12:00:00Z"
+ *       }
+ *     ],
+ *     "count": 1
+ *   }
+ */
+router.get('/group/:groupId', verifyFirebaseToken, getGroupFiles);
 
-// Lấy files theo MIME type
-router.get('/by-type/:mimeType', FileController.getFilesByType);
-
-// Lấy thông tin file theo ID
-router.get('/:fileId', FileController.getFileById);
-
-// Download file
-router.get('/:fileId/download', FileController.downloadFile);
-
-// Xóa file
-router.delete('/:fileId', FileController.deleteFile);
-
-// Cập nhật tags của file
-router.put('/:fileId/tags', FileController.updateFileTags);
-
-// Error handling middleware for multer
+/**
+ * Error handling middleware cho files routes
+ */
 router.use((error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        success: false,
-        error: 'File too large. Maximum size is 50MB'
-      });
-    }
+  console.error('Files API Error:', error);
+  
+  // Cloudinary specific errors
+  if (error.message && error.message.includes('cloudinary')) {
     return res.status(400).json({
       success: false,
-      error: error.message
+      message: 'Cloudinary service error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
   
-  if (error.message === 'File type not allowed') {
-    return res.status(400).json({
+  // MySQL specific errors
+  if (error.code === 'ER_DUP_ENTRY') {
+    return res.status(409).json({
       success: false,
-      error: 'File type not allowed'
+      message: 'Duplicate entry detected'
     });
   }
   
-  next(error);
+  // Firebase specific errors
+  if (error.code && error.code.startsWith('auth/')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication failed'
+    });
+  }
+  
+  // Generic server error
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? error.message : undefined
+  });
 });
 
 module.exports = router;

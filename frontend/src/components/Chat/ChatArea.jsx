@@ -25,6 +25,7 @@ import {
   Crown
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { getAuth } from 'firebase/auth';
 import TagSelector from './TagSelector';
 import GroupSidebar from './GroupSidebar';
 
@@ -130,7 +131,7 @@ const ChatArea = ({ user }) => {
 
   // Get documents for current group
   const getCurrentGroupDocuments = () => {
-    return selectedGroup ? groupDocuments[selectedGroup.id] || [] : [];
+    return selectedGroup ? groupDocuments[selectedGroup] || [] : [];
   };
 
   // Auto scroll to bottom when new message/file is added
@@ -314,39 +315,153 @@ const ChatArea = ({ user }) => {
   };
 
   const handleUpload = async () => {
-    if (pendingFiles.length === 0) return;
+    console.log('🚀 handleUpload called, pendingFiles:', pendingFiles.length);
+    console.log('📁 Files to upload:', pendingFiles.map(f => f.name));
+    console.log('👤 User:', user?.email);
+    
+    if (pendingFiles.length === 0) {
+      console.log('❌ No files to upload');
+      return;
+    }
 
     setUploading(true);
+    console.log('⏳ Setting uploading to true');
     
-    // Simulate upload delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Create new documents with tags
-    const newDocs = pendingFiles.map((file, index) => ({
-      id: Date.now() + index + '',
-      name: file.name,
-      size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-      type: file.name.split('.').pop() || 'unknown',
-      uploadedBy: 'Bạn',
-      uploadedAt: new Date().toISOString(),
-      downloads: 0,
-      views: 0,
-      isOwn: true,
-      tags: selectedTags
-    }));
-
-    // Add to current group documents
-    const groupId = selectedGroup?.id || '1';
-    setGroupDocuments(prev => ({
-      ...prev,
-      [groupId]: [...(prev[groupId] || []), ...newDocs]
-    }));
-
-    // Reset states
-    setUploading(false);
-    setShowUploadDialog(false);
-    setPendingFiles([]);
-    setSelectedTags([]);
+    try {
+      // Get Firebase ID token
+      console.log('🔑 Getting Firebase ID token...');
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('User not authenticated');
+      }
+      const idToken = await currentUser.getIdToken();
+      console.log('✅ Got Firebase token');
+      
+      const uploadedDocs = [];
+      
+      // Upload each file using signed upload pattern
+      for (const file of pendingFiles) {
+        try {
+          // Step 1: Get upload signature from backend
+          console.log(`📤 Requesting signature for file: ${file.name}`);
+          const signatureResponse = await fetch('http://localhost:5000/api/files/signature', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${idToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          console.log('📥 Signature response status:', signatureResponse.status);
+          
+          if (!signatureResponse.ok) {
+            throw new Error(`Failed to get upload signature: ${signatureResponse.statusText}`);
+          }
+          
+          const signatureData = await signatureResponse.json();
+          
+          if (!signatureData.success) {
+            throw new Error(signatureData.message || 'Failed to get upload signature');
+          }
+          
+          // Step 2: Upload to Cloudinary using signature
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('signature', signatureData.data.signature);
+          formData.append('timestamp', signatureData.data.timestamp);
+          formData.append('api_key', signatureData.data.api_key);
+          formData.append('folder', signatureData.data.folder);
+          formData.append('resource_type', signatureData.data.resource_type);
+          
+          const cloudinaryResponse = await fetch(
+            `https://api.cloudinary.com/v1_1/${signatureData.data.cloud_name}/auto/upload`,
+            {
+              method: 'POST',
+              body: formData
+            }
+          );
+          
+          if (!cloudinaryResponse.ok) {
+            throw new Error(`Cloudinary upload failed: ${cloudinaryResponse.statusText}`);
+          }
+          
+          const cloudinaryData = await cloudinaryResponse.json();
+          
+          // Step 3: Save file metadata to backend
+          const metadataResponse = await fetch('http://localhost:5000/api/files/metadata', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${idToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              name: file.name,
+              url: cloudinaryData.secure_url,
+              size: file.size,
+              mimeType: file.type,
+              groupId: selectedGroup || 1,
+              tagIds: selectedTags.map(tag => parseInt(tag.id))
+            })
+          });
+          
+          if (!metadataResponse.ok) {
+            throw new Error(`Failed to save file metadata: ${metadataResponse.statusText}`);
+          }
+          
+          const metadataData = await metadataResponse.json();
+          
+          if (!metadataData.success) {
+            throw new Error(metadataData.message || 'Failed to save file metadata');
+          }
+          
+          // Create document object for UI
+          const newDoc = {
+            id: metadataData.data.id,
+            name: metadataData.data.name,
+            size: `${(metadataData.data.size / 1024 / 1024).toFixed(1)} MB`,
+            type: file.name.split('.').pop() || 'unknown',
+            uploadedBy: metadataData.data.uploader.name || 'Bạn',
+            uploadedAt: metadataData.data.createdAt,
+            downloads: metadataData.data.downloadCount || 0,
+            views: 0,
+            isOwn: true,
+            tags: metadataData.data.tags || selectedTags,
+            url: metadataData.data.url
+          };
+          
+          uploadedDocs.push(newDoc);
+          
+        } catch (fileError) {
+          console.error(`Error uploading file ${file.name}:`, fileError);
+          // Continue with other files
+        }
+      }
+      
+      // Add successfully uploaded documents to current group
+      if (uploadedDocs.length > 0) {
+        const groupId = selectedGroup || '1';
+        setGroupDocuments(prev => ({
+          ...prev,
+          [groupId]: [...(prev[groupId] || []), ...uploadedDocs]
+        }));
+      }
+      
+      // Reset states
+      setUploading(false);
+      setShowUploadDialog(false);
+      setPendingFiles([]);
+      setSelectedTags([]);
+      
+      // Show success message
+      if (uploadedDocs.length > 0) {
+        console.log(`✅ Successfully uploaded ${uploadedDocs.length} file(s)`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Upload error:', error);
+      setUploading(false);
+      // Don't reset dialog on error so user can retry
+    }
   };
 
   // If no group is selected
