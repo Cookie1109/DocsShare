@@ -13,7 +13,14 @@ import {
   User,
   Eye,
   EyeOff,
-  Hash
+  Hash,
+  Github,
+  Facebook,
+  Twitter,
+  Instagram,
+  Phone,
+  MapPin,
+  Heart
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -257,6 +264,74 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* Footer */}
+      <footer className="bg-gray-900 text-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Main Footer Content */}
+          <div className="py-12 grid grid-cols-1 md:grid-cols-2 gap-12">
+            {/* Company Info */}
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <img src="/Logo.png" alt="DocsShare" className="w-10 h-10" />
+                <h3 className="text-2xl font-bold text-emerald-400">DocsShare</h3>
+              </div>
+              <p className="text-gray-300 mb-6 max-w-md">
+                Nền tảng chia sẻ tài liệu thông minh dành cho sinh viên. 
+                Kết nối, chia sẻ và học tập hiệu quả hơn cùng nhau.
+              </p>
+              
+              {/* Social Links */}
+              <div className="flex space-x-4">
+                <SocialLink href="#" icon={<Facebook className="h-5 w-5" />} />
+                <SocialLink href="#" icon={<Twitter className="h-5 w-5" />} />
+                <SocialLink href="#" icon={<Instagram className="h-5 w-5" />} />
+                <SocialLink href="#" icon={<Github className="h-5 w-5" />} />
+              </div>
+            </div>
+
+            {/* Contact Info */}
+            <div>
+              <h4 className="text-lg font-semibold mb-4 text-emerald-400">Liên hệ</h4>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <Mail className="h-5 w-5 text-emerald-400" />
+                  <span className="text-gray-300">23127208@dlu.edu.vn</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <Phone className="h-5 w-5 text-emerald-400" />
+                  <span className="text-gray-300">+84 123 456 789</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <MapPin className="h-5 w-5 text-emerald-400" />
+                  <span className="text-gray-300">Lâm Đồng, Việt Nam</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Footer */}
+          <div className="border-t border-gray-800 py-6">
+            <div className="flex flex-col md:flex-row justify-between items-center">
+              <div className="flex items-center space-x-1 text-gray-400 mb-4 md:mb-0">
+                <span>© 2025 DocsShare</span>
+              </div>
+              
+              <div className="flex space-x-6 text-sm text-gray-400">
+                <a href="#" className="hover:text-emerald-400 transition-colors">
+                  Chính sách bảo mật
+                </a>
+                <a href="#" className="hover:text-emerald-400 transition-colors">
+                  Điều khoản sử dụng
+                </a>
+                <a href="#" className="hover:text-emerald-400 transition-colors">
+                  Cookies
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </footer>
+
       {/* Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -314,7 +389,7 @@ const LandingPage = () => {
                   <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                   <input
                     type="email"
-                    placeholder="Tài khoản"
+                    placeholder="Email"
                     value={loginData.email}
                     onChange={(e) => {
                       setLoginData({...loginData, email: e.target.value});
@@ -499,7 +574,7 @@ const LandingPage = () => {
                   <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                   <input
                     type="email"
-                    placeholder="Tài khoản"
+                    placeholder="Email"
                     value={registerData.email}
                     onChange={(e) => {
                       setRegisterData({...registerData, email: e.target.value});
@@ -607,5 +682,28 @@ const LandingPage = () => {
     </div>
   );
 };
+
+// Helper Components for Footer
+const SocialLink = ({ href, icon }) => (
+  <a
+    href={href}
+    className="bg-gray-800 hover:bg-emerald-500 p-2 rounded-lg transition-colors duration-200"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    {icon}
+  </a>
+);
+
+const FooterLink = ({ href, text }) => (
+  <li>
+    <a
+      href={href}
+      className="text-gray-300 hover:text-emerald-400 transition-colors duration-200"
+    >
+      {text}
+    </a>
+  </li>
+);
 
 export default LandingPage;
