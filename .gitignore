@@ -130,6 +130,8 @@ uploads/
 
 # Security files (NEVER COMMIT!)
 firebase-service-account.json
+*firebase-adminsdk*.json
+docsshare-*-firebase-adminsdk-*.json
 *.p12
 
 # OS generated files
