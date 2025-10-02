@@ -66,6 +66,28 @@ CREATE TABLE group_members (
 );
 
 -- -----------------------------------------------------------------
+-- Bảng `group_mapping`: Ánh xạ giữa Firestore Group IDs và MySQL Group IDs.
+-- Cần thiết cho việc tích hợp frontend (sử dụng Firestore) với backend (sử dụng MySQL).
+-- -----------------------------------------------------------------
+CREATE TABLE group_mapping (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    -- Firestore Group ID (chuỗi ký tự)
+    firestore_id VARCHAR(128) UNIQUE NOT NULL,
+    -- MySQL Group ID (số nguyên)
+    mysql_id INT NOT NULL,
+    -- Tên nhóm để debug và quản lý
+    group_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Ràng buộc khóa ngoại đến bảng groups
+    FOREIGN KEY (mysql_id) REFERENCES `groups`(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    -- Index để tối ưu tìm kiếm theo Firestore ID
+    INDEX idx_firestore_id (firestore_id),
+    INDEX idx_mysql_id (mysql_id)
+);
+
+-- -----------------------------------------------------------------
 -- Bảng `files`: Lưu trữ metadata của tất cả các file.
 -- -----------------------------------------------------------------
 CREATE TABLE files (
