@@ -28,6 +28,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getAuth } from 'firebase/auth';
 import TagSelector from './TagSelector';
 import GroupSidebar from './GroupSidebar';
+import { useGroupFiles } from '../../hooks/useGroupFiles';
 
 const ChatArea = ({ user }) => {
   // Get selectedGroup from AuthContext
@@ -35,6 +36,10 @@ const ChatArea = ({ user }) => {
   
   // Get current group object
   const currentGroup = userGroups.find(g => g.id === selectedGroup);
+  
+  // Use custom hook for file management
+  const { files, loading: filesLoading, error: filesError, uploadFiles, refreshFiles, setError } = useGroupFiles(selectedGroup);
+  
   // Tag management - Chủ đề rau củ quả
   const [availableTags, setAvailableTags] = useState([
     { id: '1', name: 'Học tập', color: 'bg-emerald-500' }, // Màu lá xanh
@@ -46,7 +51,7 @@ const ChatArea = ({ user }) => {
     { id: '7', name: 'Thảo luận', color: 'bg-pink-500' } // Màu hồng (củ cải đường)
   ]);
 
-  // Documents for each group
+  // Old static documents for fallback (removing in next step)
   const [groupDocuments, setGroupDocuments] = useState({
     '1': [ // Nhóm React Developers
       {
@@ -129,10 +134,23 @@ const ChatArea = ({ user }) => {
   const [filteredDocuments, setFilteredDocuments] = useState([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
+
+
   // Get documents for current group
   const getCurrentGroupDocuments = () => {
-    return selectedGroup ? groupDocuments[selectedGroup] || [] : [];
+    const docs = files || [];
+    
+    // Double-check: Ensure files are sorted by upload time (chat order)
+    const sortedDocs = [...docs].sort((a, b) => {
+      return new Date(a.uploadedAt) - new Date(b.uploadedAt);
+    });
+    
+
+    
+    return sortedDocs;
   };
+
+
 
   // Auto scroll to bottom when new message/file is added
   useEffect(() => {
@@ -140,6 +158,22 @@ const ChatArea = ({ user }) => {
       chatAreaRef.current.scrollTop = chatAreaRef.current.scrollHeight;
     }
   }, [getCurrentGroupDocuments(), uploading, selectedGroup]); // Scroll khi documents thay đổi hoặc đang upload
+
+  // Listen for scroll to bottom events
+  useEffect(() => {
+    const handleScrollToBottom = () => {
+      if (chatAreaRef.current) {
+        console.log('🔄 Auto-scrolling to bottom...');
+        chatAreaRef.current.scrollTo({
+          top: chatAreaRef.current.scrollHeight,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('scrollToBottom', handleScrollToBottom);
+    return () => window.removeEventListener('scrollToBottom', handleScrollToBottom);
+  }, []);
 
   // Close sidebar on ESC key
   useEffect(() => {
@@ -315,152 +349,42 @@ const ChatArea = ({ user }) => {
   };
 
   const handleUpload = async () => {
-    console.log('🚀 handleUpload called, pendingFiles:', pendingFiles.length);
-    console.log('📁 Files to upload:', pendingFiles.map(f => f.name));
-    console.log('👤 User:', user?.email);
-    
     if (pendingFiles.length === 0) {
       console.log('❌ No files to upload');
       return;
     }
 
+    if (!selectedGroup) {
+      console.log('❌ No group selected');
+      return;
+    }
+
     setUploading(true);
-    console.log('⏳ Setting uploading to true');
     
     try {
-      // Get Firebase ID token
-      console.log('🔑 Getting Firebase ID token...');
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error('User not authenticated');
-      }
-      const idToken = await currentUser.getIdToken();
-      console.log('✅ Got Firebase token');
+      // Convert selected tags to IDs for API
+      const tagIds = selectedTags.map(tag => parseInt(tag.id));
       
-      const uploadedDocs = [];
+      // Use the hook's upload function
+      const result = await uploadFiles(pendingFiles, selectedGroup, tagIds);
       
-      // Upload each file using signed upload pattern
-      for (const file of pendingFiles) {
-        try {
-          // Step 1: Get upload signature from backend
-          console.log(`📤 Requesting signature for file: ${file.name}`);
-          const signatureResponse = await fetch('http://localhost:5000/api/files/signature', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${idToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          console.log('📥 Signature response status:', signatureResponse.status);
-          
-          if (!signatureResponse.ok) {
-            throw new Error(`Failed to get upload signature: ${signatureResponse.statusText}`);
-          }
-          
-          const signatureData = await signatureResponse.json();
-          
-          if (!signatureData.success) {
-            throw new Error(signatureData.message || 'Failed to get upload signature');
-          }
-          
-          // Step 2: Upload to Cloudinary using signature
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('signature', signatureData.data.signature);
-          formData.append('timestamp', signatureData.data.timestamp);
-          formData.append('api_key', signatureData.data.api_key);
-          formData.append('folder', signatureData.data.folder);
-          formData.append('resource_type', signatureData.data.resource_type);
-          
-          const cloudinaryResponse = await fetch(
-            `https://api.cloudinary.com/v1_1/${signatureData.data.cloud_name}/auto/upload`,
-            {
-              method: 'POST',
-              body: formData
-            }
-          );
-          
-          if (!cloudinaryResponse.ok) {
-            throw new Error(`Cloudinary upload failed: ${cloudinaryResponse.statusText}`);
-          }
-          
-          const cloudinaryData = await cloudinaryResponse.json();
-          
-          // Step 3: Save file metadata to backend
-          const metadataResponse = await fetch('http://localhost:5000/api/files/metadata', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${idToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              name: file.name,
-              url: cloudinaryData.secure_url,
-              size: file.size,
-              mimeType: file.type,
-              groupId: selectedGroup || 1,
-              tagIds: selectedTags.map(tag => parseInt(tag.id))
-            })
-          });
-          
-          if (!metadataResponse.ok) {
-            throw new Error(`Failed to save file metadata: ${metadataResponse.statusText}`);
-          }
-          
-          const metadataData = await metadataResponse.json();
-          
-          if (!metadataData.success) {
-            throw new Error(metadataData.message || 'Failed to save file metadata');
-          }
-          
-          // Create document object for UI
-          const newDoc = {
-            id: metadataData.data.id,
-            name: metadataData.data.name,
-            size: `${(metadataData.data.size / 1024 / 1024).toFixed(1)} MB`,
-            type: file.name.split('.').pop() || 'unknown',
-            uploadedBy: metadataData.data.uploader.name || 'Bạn',
-            uploadedAt: metadataData.data.createdAt,
-            downloads: metadataData.data.downloadCount || 0,
-            views: 0,
-            isOwn: true,
-            tags: metadataData.data.tags || selectedTags,
-            url: metadataData.data.url
-          };
-          
-          uploadedDocs.push(newDoc);
-          
-        } catch (fileError) {
-          console.error(`Error uploading file ${file.name}:`, fileError);
-          // Continue with other files
-        }
-      }
-      
-      // Add successfully uploaded documents to current group
-      if (uploadedDocs.length > 0) {
-        const groupId = selectedGroup || '1';
-        setGroupDocuments(prev => ({
-          ...prev,
-          [groupId]: [...(prev[groupId] || []), ...uploadedDocs]
-        }));
-      }
-      
-      // Reset states
-      setUploading(false);
-      setShowUploadDialog(false);
-      setPendingFiles([]);
-      setSelectedTags([]);
-      
-      // Show success message
-      if (uploadedDocs.length > 0) {
-        console.log(`✅ Successfully uploaded ${uploadedDocs.length} file(s)`);
+      if (result.success) {
+        console.log('✅ Upload successful:', result.message);
+        
+        // Reset states on success
+        setShowUploadDialog(false);
+        setPendingFiles([]);
+        setSelectedTags([]);
+      } else {
+        console.error('❌ Upload failed:', result.message);
+        // Keep dialog open on failure so user can retry
       }
       
     } catch (error) {
       console.error('❌ Upload error:', error);
+      setError(error.message);
+    } finally {
       setUploading(false);
-      // Don't reset dialog on error so user can retry
     }
   };
 
@@ -662,6 +586,7 @@ const ChatArea = ({ user }) => {
       {/* Chat Messages Area - Zalo style - Scrollable */}
       <div 
         ref={chatAreaRef}
+        data-chat-area
         className="flex-1 overflow-y-auto p-4 space-y-4"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -679,6 +604,30 @@ const ChatArea = ({ user }) => {
                 Chọn một nhóm từ sidebar bên trái để bắt đầu chia sẻ tài liệu, hoặc tạo nhóm mới nếu bạn chưa có nhóm nào.
               </p>
 
+            </div>
+          </div>
+        ) : filesError ? (
+          // Error state
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center max-w-md mx-auto p-8">
+              <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <X className="w-12 h-12 text-red-500" />
+              </div>
+              <h3 className="text-xl font-semibold text-red-800 mb-2">
+                Lỗi tải file
+              </h3>
+              <p className="text-red-600 mb-4">
+                {filesError}
+              </p>
+              <button
+                onClick={() => {
+                  setError(null);
+                  refreshFiles();
+                }}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              >
+                Thử lại
+              </button>
             </div>
           </div>
         ) : getCurrentGroupDocuments().length === 0 ? (
@@ -812,17 +761,16 @@ const ChatArea = ({ user }) => {
                     <Eye className="h-3 w-3 mr-1" />
                     {doc.views}
                   </span>
-                  <span className="flex items-center mr-3">
+                  <span className="flex items-center">
                     <Download className="h-3 w-3 mr-1" />
                     {doc.downloads}
                   </span>
-                  <span className="flex items-center">
-                    <Clock className="h-3 w-3 mr-1" />
-                    {formatTime(doc.uploadedAt)}
-                  </span>
+
                     </div>
                   </div>
                 </div>
+                
+
                 
                 {/* Timestamp for own files */}
                 {doc.isOwn && (
@@ -833,16 +781,18 @@ const ChatArea = ({ user }) => {
           ))
         )}
 
-        {/* Upload indicator */}
-        {uploading && (
+        {/* Simple upload indicator */}
+        {(uploading || filesLoading) && (
           <div className="flex justify-end">
             <div className="bg-emerald-500 text-white rounded-2xl p-3 shadow-md relative ml-8">
               <div className="flex items-center space-x-2">
-                <div className="absolute top-4 -right-1 w-3 h-3 bg-lime-500 transform rotate-45"></div>
+                <div className="absolute top-4 -right-1 w-3 h-3 bg-emerald-400 transform rotate-45"></div>
                 <div className="animate-spin">
                   <Upload className="h-4 w-4" />
                 </div>
-                <span className="text-sm">Đang tải lên...</span>
+                <span className="text-sm">
+                  {uploading ? 'Đang tải lên...' : 'Đang tải...'}
+                </span>
               </div>
             </div>
           </div>
@@ -962,10 +912,10 @@ const ChatArea = ({ user }) => {
                 </button>
                 <button
                   onClick={handleUpload}
-                  disabled={uploading}
+                  disabled={uploading || filesLoading}
                   className="flex-1 px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:bg-gray-400 transition-colors font-medium flex items-center justify-center"
                 >
-                  {uploading ? (
+                  {(uploading || filesLoading) ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                       Đang tải...

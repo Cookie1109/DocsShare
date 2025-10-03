@@ -317,38 +317,62 @@ const debugUserGroups = async (req, res) => {
 const getGroupFiles = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const { groupId } = req.params;
+    const { groupId: firestoreGroupId } = req.params;
+
+    console.log(`🔍 Getting files for Firebase group: ${firestoreGroupId}, user: ${userId}`);
+
+    // Convert Firebase group ID to MySQL group ID
+    const groupMapping = await executeQuery(
+      `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+      [firestoreGroupId]
+    );
+
+    console.log(`🗺️ Group mapping result:`, groupMapping);
+
+    if (!groupMapping || groupMapping.length === 0) {
+      console.log(`❌ Group mapping not found for: ${firestoreGroupId}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Group not found'
+      });
+    }
+
+    const mysqlGroupId = groupMapping[0].mysql_id;
+    console.log(`✅ Mapped to MySQL group: ${mysqlGroupId}`);
 
     // Kiểm tra user có trong group không
     const [memberCheck] = await executeQuery(
       `SELECT user_id FROM group_members WHERE group_id = ? AND user_id = ?`,
-      [groupId, userId]
+      [mysqlGroupId, userId]
     );
     
     if (memberCheck.length === 0) {
+      console.log(`❌ User ${userId} is not a member of group ${mysqlGroupId}`);
       return res.status(403).json({
         success: false,
         message: 'User is not a member of this group'
       });
     }
 
-    // Lấy files với tags
+    console.log(`✅ User is member of group ${mysqlGroupId}`);
+
+    // Lấy files với tags (file mới nhất ở dưới cùng như chat)
     const files = await executeQuery(`
       SELECT 
         f.*,
-        u.displayName as uploader_name,
+        u.display_name as uploader_name,
         u.email as uploader_email,
         GROUP_CONCAT(
           JSON_OBJECT('id', t.id, 'name', t.name)
         ) as tags_json
       FROM files f
-      JOIN users u ON f.uploader_id = u.uid
+      JOIN users u ON f.uploader_id = u.id
       LEFT JOIN file_tags ft ON f.id = ft.file_id
       LEFT JOIN tags t ON ft.tag_id = t.id
       WHERE f.group_id = ?
       GROUP BY f.id
-      ORDER BY f.created_at DESC
-    `, [groupId]);
+      ORDER BY f.created_at ASC
+    `, [mysqlGroupId]);
 
     // Parse tags JSON
     const filesWithTags = files.map(file => ({

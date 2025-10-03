@@ -2,6 +2,37 @@
 
 @import "tailwindcss";
 
+/* Custom animations for file upload */
+@keyframes slideInFromBottom {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes highlightPulse {
+  0%, 100% {
+    background-color: rgb(236, 253, 245);
+    border-color: rgb(167, 243, 208);
+  }
+  50% {
+    background-color: rgb(220, 252, 231);
+    border-color: rgb(134, 239, 172);
+  }
+}
+
+.file-upload-enter {
+  animation: slideInFromBottom 0.5s ease-out;
+}
+
+.file-highlight {
+  animation: highlightPulse 2s ease-in-out;
+}
+
 :root {
   font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
