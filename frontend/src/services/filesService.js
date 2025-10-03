@@ -157,6 +157,43 @@ class FilesService {
       };
     }
   }
+
+  // Delete file
+  async deleteFile(fileId) {
+    try {
+      const token = await this.getAuthToken();
+      
+      const response = await fetch(`${API_BASE_URL}/files/${fileId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to delete file: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to delete file');
+      }
+
+      return {
+        success: true,
+        data: data.data
+      };
+      
+    } catch (error) {
+      console.error(`❌ Delete failed for file ${fileId}:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 export default new FilesService();

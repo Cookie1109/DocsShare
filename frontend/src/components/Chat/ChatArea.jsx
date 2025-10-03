@@ -22,7 +22,11 @@ import {
   Tag,
   Hash,
   X,
-  Crown
+  Crown,
+  Trash2,
+  Check,
+  Square,
+  CheckSquare
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAuth } from 'firebase/auth';
@@ -38,7 +42,7 @@ const ChatArea = ({ user }) => {
   const currentGroup = userGroups.find(g => g.id === selectedGroup);
   
   // Use custom hook for file management
-  const { files, loading: filesLoading, error: filesError, uploadFiles, refreshFiles, setError } = useGroupFiles(selectedGroup);
+  const { files, loading: filesLoading, error: filesError, uploadFiles, deleteFile, refreshFiles, setError } = useGroupFiles(selectedGroup);
   
   // Tag management - Chủ đề rau củ quả
   const [availableTags, setAvailableTags] = useState([
@@ -127,6 +131,20 @@ const ChatArea = ({ user }) => {
   const fileInputRef = useRef(null);
   const chatAreaRef = useRef(null); // Ref cho scroll auto
 
+  // Delete confirmation state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Multi-select state
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState(new Set());
+  const [deletingMultiple, setDeletingMultiple] = useState(false);
+
+  // Upload progress state
+  const [uploadingFiles, setUploadingFiles] = useState(new Set());
+  const [uploadProgress, setUploadProgress] = useState({});
+
   // Search and sidebar state
   const [showGroupSidebar, setShowGroupSidebar] = useState(false);
   const [sidebarMode, setSidebarMode] = useState('none'); // 'none', 'groupInfo'
@@ -152,12 +170,20 @@ const ChatArea = ({ user }) => {
 
 
 
-  // Auto scroll to bottom when new message/file is added
+  // Only scroll to bottom when uploading new files (not when browsing)
   useEffect(() => {
-    if (chatAreaRef.current) {
-      chatAreaRef.current.scrollTop = chatAreaRef.current.scrollHeight;
+    if (chatAreaRef.current && uploading) {
+      // Only scroll when actively uploading to show the new file
+      setTimeout(() => {
+        if (chatAreaRef.current && uploading) {
+          chatAreaRef.current.scrollTo({
+            top: chatAreaRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
     }
-  }, [getCurrentGroupDocuments(), uploading, selectedGroup]); // Scroll khi documents thay đổi hoặc đang upload
+  }, [uploading]); // Only scroll when uploading, not when browsing files
 
   // Listen for scroll to bottom events
   useEffect(() => {
@@ -365,26 +391,159 @@ const ChatArea = ({ user }) => {
       // Convert selected tags to IDs for API
       const tagIds = selectedTags.map(tag => parseInt(tag.id));
       
+      // Track uploading files
+      const fileNames = pendingFiles.map(file => file.name);
+      setUploadingFiles(new Set(fileNames));
+      
+      // Initialize progress for each file
+      const initialProgress = {};
+      fileNames.forEach(name => {
+        initialProgress[name] = 'uploading';
+      });
+      setUploadProgress(initialProgress);
+      
       // Use the hook's upload function
       const result = await uploadFiles(pendingFiles, selectedGroup, tagIds);
       
       if (result.success) {
         console.log('✅ Upload successful:', result.message);
         
-        // Reset states on success
-        setShowUploadDialog(false);
-        setPendingFiles([]);
-        setSelectedTags([]);
+        // Mark all as completed
+        const completedProgress = {};
+        fileNames.forEach(name => {
+          completedProgress[name] = 'completed';
+        });
+        setUploadProgress(completedProgress);
+        
+        // Reset states after a short delay to show completion
+        setTimeout(() => {
+          setShowUploadDialog(false);
+          setPendingFiles([]);
+          setSelectedTags([]);
+          setUploadingFiles(new Set());
+          setUploadProgress({});
+        }, 1000);
       } else {
         console.error('❌ Upload failed:', result.message);
-        // Keep dialog open on failure so user can retry
+        // Mark all as failed
+        const failedProgress = {};
+        fileNames.forEach(name => {
+          failedProgress[name] = 'failed';
+        });
+        setUploadProgress(failedProgress);
+        
+        // Reset uploading state
+        setUploadingFiles(new Set());
       }
       
     } catch (error) {
       console.error('❌ Upload error:', error);
       setError(error.message);
+      setUploadingFiles(new Set());
+      setUploadProgress({});
     } finally {
       setUploading(false);
+    }
+  };
+
+  // Handle delete file
+  const handleDeleteFile = (file) => {
+    setFileToDelete(file);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDeleteFile = async () => {
+    if (!fileToDelete) return;
+    
+    setDeleting(true);
+    
+    try {
+      const result = await deleteFile(fileToDelete.id);
+      
+      if (result.success) {
+        console.log('✅ Delete successful:', result.message);
+        setShowDeleteDialog(false);
+        setFileToDelete(null);
+      } else {
+        console.error('❌ Delete failed:', result.message);
+        // Keep dialog open on failure
+      }
+      
+    } catch (error) {
+      console.error('❌ Delete error:', error);
+      setError(error.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Multi-select functions
+  const toggleFileSelection = (fileId) => {
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId);
+      } else {
+        newSet.add(fileId);
+      }
+      
+      // Exit multi-select mode if no files selected
+      if (newSet.size === 0) {
+        setIsMultiSelectMode(false);
+      }
+      
+      return newSet;
+    });
+  };
+
+  const enterMultiSelectMode = (fileId) => {
+    setIsMultiSelectMode(true);
+    setSelectedFiles(new Set([fileId]));
+  };
+
+  const exitMultiSelectMode = () => {
+    setIsMultiSelectMode(false);
+    setSelectedFiles(new Set());
+  };
+
+
+
+  // Delete multiple files
+  const deleteSelectedFiles = async () => {
+    if (selectedFiles.size === 0) return;
+    
+    setDeletingMultiple(true);
+    
+    try {
+      const fileIds = Array.from(selectedFiles);
+      const promises = fileIds.map(fileId => deleteFile(fileId));
+      
+      const results = await Promise.allSettled(promises);
+      
+      let successCount = 0;
+      let failCount = 0;
+      
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value.success) {
+          successCount++;
+        } else {
+          failCount++;
+          console.error(`❌ Failed to delete file ${fileIds[index]}:`, result.reason || result.value?.message);
+        }
+      });
+      
+      console.log(`✅ Multi delete completed: ${successCount} success, ${failCount} failed`);
+      
+      if (failCount > 0) {
+        setError(`Deleted ${successCount} files successfully. ${failCount} files failed to delete.`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Multi delete error:', error);
+      setError(error.message);
+    } finally {
+      setDeletingMultiple(false);
+      exitMultiSelectMode();
     }
   };
 
@@ -667,7 +826,7 @@ const ChatArea = ({ user }) => {
         ) : (
           /* File Messages */
           getCurrentGroupDocuments().map((doc) => (
-            <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3">
+            <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3 group relative">
               {/* Message with Avatar */}
               <div className={`flex items-end gap-2 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
                 {/* Avatar */}
@@ -683,11 +842,55 @@ const ChatArea = ({ user }) => {
                   )}
                   
                   {/* File Message Bubble */}
-                  <div className={`rounded-2xl p-3 shadow-md relative ${
-                    doc.isOwn 
-                      ? 'bg-white text-gray-800 border border-emerald-200' 
-                      : 'bg-white text-gray-800 border border-orange-200'
-                  }`}>
+                  <div 
+                    className={`rounded-2xl p-3 shadow-md relative ${
+                      doc.isOwn 
+                        ? 'bg-white text-gray-800 border border-emerald-200' 
+                        : 'bg-white text-gray-800 border border-orange-200'
+                    } ${selectedFiles.has(doc.id) ? 'ring-2 ring-blue-500 bg-blue-50' : ''} ${
+                      isMultiSelectMode && doc.isOwn ? 'cursor-pointer hover:bg-blue-50' : ''
+                    }`}
+                    onClick={(e) => {
+                      if (isMultiSelectMode && doc.isOwn) {
+                        e.stopPropagation();
+                        toggleFileSelection(doc.id);
+                      }
+                    }}
+                  >
+                    
+                    {/* Multi-select checkbox */}
+                    {(isMultiSelectMode || selectedFiles.has(doc.id)) && doc.isOwn && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFileSelection(doc.id);
+                        }}
+                        className="absolute -top-2 -left-2 p-1 rounded-full bg-white border-2 border-blue-500 text-blue-600 shadow-lg z-10 hover:bg-blue-50 transition-all duration-200"
+                        title="Chọn file"
+                      >
+                        {selectedFiles.has(doc.id) ? (
+                          <CheckSquare className="h-4 w-4" />
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
+                    
+                    {/* Delete button - Discord style (top right corner of bubble) */}
+                    {doc.isOwn && !isMultiSelectMode && (
+                      <button 
+                        onClick={() => handleDeleteFile(doc)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          enterMultiSelectMode(doc.id);
+                        }}
+                        className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-all duration-200 p-1.5 rounded-full bg-gray-700 hover:bg-red-600 text-gray-300 hover:text-white shadow-lg transform hover:scale-110 z-10"
+                        title="Xóa file (Right-click = chọn nhiều)"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    
                     {/* Chat bubble tail */}
                     <div className={`absolute bottom-2 w-3 h-3 ${
                       doc.isOwn 
@@ -733,6 +936,7 @@ const ChatArea = ({ user }) => {
                   {/* Action Buttons */}
                   <div className="flex space-x-1">
                     <button 
+                      onClick={(e) => e.stopPropagation()}
                       className={`p-2 rounded-lg transition-all duration-200 ${
                         doc.isOwn 
                           ? 'hover:bg-emerald-100 text-emerald-600 hover:text-emerald-800' 
@@ -743,6 +947,7 @@ const ChatArea = ({ user }) => {
                       <Eye className="h-5 w-5" />
                     </button>
                     <button 
+                      onClick={(e) => e.stopPropagation()}
                       className={`p-2 rounded-lg transition-all duration-200 ${
                         doc.isOwn 
                           ? 'hover:bg-emerald-100 text-emerald-600 hover:text-emerald-800' 
@@ -781,22 +986,7 @@ const ChatArea = ({ user }) => {
           ))
         )}
 
-        {/* Simple upload indicator */}
-        {(uploading || filesLoading) && (
-          <div className="flex justify-end">
-            <div className="bg-emerald-500 text-white rounded-2xl p-3 shadow-md relative ml-8">
-              <div className="flex items-center space-x-2">
-                <div className="absolute top-4 -right-1 w-3 h-3 bg-emerald-400 transform rotate-45"></div>
-                <div className="animate-spin">
-                  <Upload className="h-4 w-4" />
-                </div>
-                <span className="text-sm">
-                  {uploading ? 'Đang tải lên...' : 'Đang tải...'}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
+
 
         {/* Drag overlay */}
         {dragOver && (
@@ -808,6 +998,44 @@ const ChatArea = ({ user }) => {
           </div>
         )}
       </div>
+
+      {/* Multi-select toolbar */}
+      {selectedFiles.size > 0 && (
+        <div className="p-3 bg-red-50 border-t border-red-200 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <span className="text-sm font-medium text-red-700">
+                {selectedFiles.size} file được chọn
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={exitMultiSelectMode}
+                className="px-3 py-1.5 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={deleteSelectedFiles}
+                disabled={deletingMultiple}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-sm font-medium rounded-lg transition-colors flex items-center space-x-2"
+              >
+                {deletingMultiple ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span>Đang xóa...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    <span>Xóa tất cả</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upload Button - Fixed at bottom */}
       <div className="p-4 bg-white border-t border-green-100 flex-shrink-0">
@@ -870,18 +1098,48 @@ const ChatArea = ({ user }) => {
               {/* File List */}
               <div className="mb-6 flex-shrink-0">
                 <h4 className="text-sm font-medium text-gray-700 mb-3">File được chọn:</h4>
-                <div className="space-y-2">
-                  {pendingFiles.map((file, index) => (
-                    <div key={index} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                        {getFileIcon(file.name.split('.').pop())}
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                  {pendingFiles.map((file, index) => {
+                    const uploadStatus = uploadProgress[file.name];
+                    const isUploading = uploadingFiles.has(file.name);
+                    
+                    return (
+                      <div key={index} className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${
+                        uploadStatus === 'completed' ? 'bg-green-50 border border-green-200' :
+                        uploadStatus === 'failed' ? 'bg-red-50 border border-red-200' :
+                        isUploading ? 'bg-blue-50 border border-blue-200' :
+                        'bg-gray-50'
+                      }`}>
+                        <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0 relative">
+                          {getFileIcon(file.name.split('.').pop())}
+                          {isUploading && (
+                            <div className="absolute inset-0 bg-blue-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
+                            </div>
+                          )}
+                          {uploadStatus === 'completed' && (
+                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <Check className="h-2.5 w-2.5 text-white" />
+                            </div>
+                          )}
+                          {uploadStatus === 'failed' && (
+                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                              <X className="h-2.5 w-2.5 text-white" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
+                          <p className="text-xs text-gray-500">
+                            {(file.size / 1024 / 1024).toFixed(1)} MB
+                            {uploadStatus === 'uploading' && ' • Đang tải lên...'}
+                            {uploadStatus === 'completed' && ' • Hoàn thành'}
+                            {uploadStatus === 'failed' && ' • Thất bại'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
-                        <p className="text-xs text-gray-500">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -912,18 +1170,110 @@ const ChatArea = ({ user }) => {
                 </button>
                 <button
                   onClick={handleUpload}
-                  disabled={uploading || filesLoading}
-                  className="flex-1 px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:bg-gray-400 transition-colors font-medium flex items-center justify-center"
+                  disabled={uploading}
+                  className={`flex-1 px-6 py-3 text-white rounded-lg transition-colors font-medium flex items-center justify-center ${
+                    uploading ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600'
+                  }`}
                 >
-                  {(uploading || filesLoading) ? (
+                  {uploading ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Đang tải...
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                      Đang tải lên...
                     </>
                   ) : (
                     <>
                       <Upload className="h-4 w-4 mr-2" />
                       Tải lên ({pendingFiles.length})
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteDialog && fileToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <Trash2 className="h-5 w-5 text-red-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Xóa file</h3>
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowDeleteDialog(false);
+                    setFileToDelete(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-full hover:bg-gray-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="mb-4">
+                <p className="text-gray-700 mb-2">
+                  Bạn có chắc chắn muốn xóa file này không?
+                </p>
+                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    {getFileIcon(fileToDelete.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{fileToDelete.name}</p>
+                    <p className="text-xs text-gray-500">{fileToDelete.size}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <p className="text-red-800 text-sm">
+                  <strong>⚠️ Cảnh báo:</strong> Hành động này không thể hoàn tác. File sẽ bị xóa vĩnh viễn khỏi hệ thống.
+                </p>
+              </div>
+
+              {/* Quick delete tips */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                <p className="text-blue-800 text-sm font-medium mb-2">💡 Mẹo sử dụng nhanh:</p>
+                <ul className="text-blue-700 text-xs space-y-1">
+                  <li>• <strong>Right-click</strong> nút xóa = Chọn nhiều file để xóa cùng lúc</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-100">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteDialog(false);
+                    setFileToDelete(null);
+                  }}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors font-medium"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={confirmDeleteFile}
+                  disabled={deleting}
+                  className="flex-1 px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-red-400 transition-colors font-medium flex items-center justify-center"
+                >
+                  {deleting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Đang xóa...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Xóa file
                     </>
                   )}
                 </button>

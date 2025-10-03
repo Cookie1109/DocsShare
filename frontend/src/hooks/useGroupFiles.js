@@ -142,11 +142,60 @@ export const useGroupFiles = (selectedGroup) => {
     return selectedGroup ? groupFiles[selectedGroup] || [] : [];
   }, [selectedGroup, groupFiles]);
 
+  // Delete file
+  const deleteFile = useCallback(async (fileId) => {
+    if (!fileId) return { success: false, message: 'File ID is required' };
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log(`🗑️ Deleting file: ${fileId}`);
+      
+      const result = await filesService.deleteFile(fileId);
+      
+      if (result.success) {
+        console.log(`✅ File ${fileId} deleted successfully`);
+        
+        // Update local state - remove file from current group
+        if (selectedGroup && groupFiles[selectedGroup]) {
+          setGroupFiles(prev => ({
+            ...prev,
+            [selectedGroup]: prev[selectedGroup].filter(file => file.id !== parseInt(fileId))
+          }));
+        }
+        
+        return {
+          success: true,
+          message: 'File deleted successfully'
+        };
+      } else {
+        console.error('❌ Delete failed:', result.error);
+        setError(result.error);
+        return {
+          success: false,
+          message: result.error
+        };
+      }
+      
+    } catch (err) {
+      console.error('❌ Delete error:', err);
+      setError(err.message);
+      return {
+        success: false,
+        message: err.message
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedGroup, groupFiles]);
+
   return {
     files: getCurrentGroupFiles(),
     loading,
     error,
     uploadFiles,
+    deleteFile,
     refreshFiles: () => fetchFiles(selectedGroup),
     setError
   };

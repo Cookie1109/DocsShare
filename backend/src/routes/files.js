@@ -2,7 +2,8 @@ const express = require('express');
 const { 
   createUploadSignature, 
   saveFileMetadata, 
-  getGroupFiles
+  getGroupFiles,
+  deleteFile
   // debugUserGroups - temporarily removed to test
 } = require('../controllers/filesController');
 const verifyFirebaseToken = require('../middleware/firebaseAuth');
@@ -149,5 +150,31 @@ router.use((error, req, res, next) => {
     error: process.env.NODE_ENV === 'development' ? error.message : undefined
   });
 });
+
+/**
+ * DELETE /api/files/:fileId
+ * Xóa file - chỉ owner hoặc admin có thể xóa
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Params:
+ *   fileId: ID của file cần xóa
+ * 
+ * Response Success:
+ *   {
+ *     "success": true,
+ *     "message": "File deleted successfully",
+ *     "data": {
+ *       "deletedFileId": "123",
+ *       "fileName": "document.pdf"
+ *     }
+ *   }
+ * 
+ * Response Error:
+ *   403: { "success": false, "message": "You can only delete your own files or you must be an admin" }
+ *   404: { "success": false, "message": "File not found or you do not have access to this file" }
+ */
+router.delete('/:fileId', verifyFirebaseToken, deleteFile);
 
 module.exports = router;

@@ -2,6 +2,13 @@ const cloudinary = require('cloudinary').v2;
 const { executeQuery, executeTransaction, db } = require('../config/db');
 const admin = require('../config/firebaseAdmin');
 
+// Ensure Cloudinary is configured for destroy operations
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 /**
  * API Controller cho file upload system
  * - POST /api/files/signature: Tạo Cloudinary signature an toàn
@@ -406,9 +413,257 @@ const getGroupFiles = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /api/files/:fileId
+ * Xóa file - chỉ owner hoặc admin có thể xóa
+ */
+const deleteFile = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const userId = req.user.uid;
+    
+    console.log(`🗑️ Delete file request: fileId=${fileId}, userId=${userId}`);
+    
+    // 1. Lấy thông tin file trước
+    const fileInfoResult = await executeQuery(`
+      SELECT f.*, map.firestore_id as firebase_group_id
+      FROM files f
+      JOIN group_mapping map ON f.group_id = map.mysql_id
+      WHERE f.id = ?
+    `, [fileId]);
+    
+    if (!fileInfoResult || fileInfoResult.length === 0) {
+      console.log(`❌ File ${fileId} not found`);
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+    
+    const file = fileInfoResult[0];
+    
+    // 2. Kiểm tra quyền của user với group
+    const memberResult = await executeQuery(`
+      SELECT role FROM group_members WHERE group_id = ? AND user_id = ?
+    `, [file.group_id, userId]);
+    
+    if (!memberResult || memberResult.length === 0) {
+      console.log(`❌ User ${userId} is not a member of group ${file.group_id}`);
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this group'
+      });
+    }
+    
+    const userRole = memberResult[0].role;
+    
+    // 3. Kiểm tra quyền: chỉ owner hoặc admin mới được xóa
+    const isOwner = file.uploader_id === userId;
+    const isAdmin = userRole === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      console.log(`❌ User ${userId} is not owner or admin, cannot delete file ${fileId}`);
+      return res.status(403).json({
+        success: false,
+        message: 'You can only delete your own files or you must be an admin'
+      });
+    }
+    
+    console.log(`✅ User ${userId} has permission to delete file ${fileId} (${isOwner ? 'owner' : 'admin'})`);
+    
+    // 4. Xóa file trên Cloudinary
+    try {
+      // Extract public_id từ Cloudinary URL
+      // URL format: https://res.cloudinary.com/cloud_name/raw/upload/v1234567890/docsshare/documents/filename.ext
+      const url = file.storage_path;
+      console.log(`🔍 Original Cloudinary URL: ${url}`);
+      
+      let publicId;
+      
+      try {
+        // Parse URL để lấy chính xác public_id
+        const urlParts = url.split('/');
+        const uploadIndex = urlParts.findIndex(part => part === 'upload');
+        
+        if (uploadIndex !== -1 && uploadIndex < urlParts.length - 1) {
+          // Lấy phần sau 'upload/' 
+          const afterUpload = urlParts.slice(uploadIndex + 1).join('/');
+          
+          // Loại bỏ version nếu có (v1234567890/)
+          const withoutVersion = afterUpload.replace(/^v\d+\//, '');
+          
+          // Với raw files, public_id bao gồm cả folder và filename nhưng không có extension
+          // Ví dụ: docsshare/documents/filename (không có .doc)
+          publicId = withoutVersion.replace(/\.[^/.]+$/, '');
+          
+          console.log(`🎯 Extracted public_id: ${publicId}`);
+        }
+      } catch (parseError) {
+        console.error('⚠️ Error parsing Cloudinary URL:', parseError);
+      }
+      
+      // Fallback nếu parsing thất bại
+      if (!publicId) {
+        const urlParts = url.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const filenameWithoutExt = filename.split('.')[0];
+        publicId = `docsshare/documents/${filenameWithoutExt}`;
+        console.log(`🔄 Using fallback public_id: ${publicId}`);
+      }
+      
+      console.log(`🔄 Deleting from Cloudinary with public_id: ${publicId}`);
+      
+      // First, try to verify if file exists by listing resources
+      try {
+        console.log(`🔍 Checking if file exists in Cloudinary before deletion...`);
+        
+        const listResult = await cloudinary.api.resources({
+          type: 'upload',
+          resource_type: 'raw',
+          prefix: 'docsshare/documents/',
+          max_results: 100
+        });
+        
+        console.log(`📋 Found ${listResult.resources.length} raw files in docsshare/documents/`);
+        
+        // Find our file in the list
+        const targetFile = listResult.resources.find(resource => 
+          resource.public_id === publicId || 
+          resource.public_id === publicId.replace('docsshare/documents/', '') ||
+          resource.public_id.includes(file.storage_path.split('/').pop().split('.')[0])
+        );
+        
+        if (targetFile) {
+          console.log(`✅ Found target file in Cloudinary:`, {
+            public_id: targetFile.public_id,
+            resource_type: targetFile.resource_type,
+            format: targetFile.format,
+            url: targetFile.secure_url
+          });
+          
+          // Try to delete using the exact public_id from the list
+          const deleteResult = await cloudinary.uploader.destroy(targetFile.public_id, {
+            resource_type: 'raw'
+          });
+          
+          console.log(`🗑️ Deletion result:`, deleteResult);
+          
+          if (deleteResult.result === 'ok') {
+            console.log(`✅ SUCCESS! File deleted from Cloudinary: ${targetFile.public_id}`);
+          } else {
+            console.log(`❌ Deletion failed despite file existing: ${deleteResult.result}`);
+          }
+        } else {
+          console.log(`⚠️ File not found in Cloudinary resources list. Possible public_ids checked:`, [
+            publicId,
+            publicId.replace('docsshare/documents/', ''),
+            file.storage_path.split('/').pop().split('.')[0]
+          ]);
+          
+          // List first few resources for debugging
+          console.log(`🔍 First few resources in folder:`, listResult.resources.slice(0, 3).map(r => ({
+            public_id: r.public_id,
+            created_at: r.created_at
+          })));
+        }
+        
+      } catch (listError) {
+        console.error(`❌ Error listing Cloudinary resources:`, listError.message);
+        
+        // Fallback to original deletion attempts
+        console.log(`🔄 Falling back to direct deletion attempts...`);
+        
+        const possibleFormats = [
+          { publicId: publicId, resourceType: 'raw' },
+          { publicId: publicId.replace('docsshare/documents/', ''), resourceType: 'raw' },
+          { publicId: file.storage_path.split('/').pop().split('.')[0], resourceType: 'raw' }
+        ];
+        
+        for (const format of possibleFormats) {
+          try {
+            console.log(`🎯 Attempting deletion with public_id: "${format.publicId}"`);
+            
+            const result = await cloudinary.uploader.destroy(format.publicId, {
+              resource_type: format.resourceType
+            });
+            
+            console.log(`📝 Response:`, result);
+            
+            if (result.result === 'ok') {
+              console.log(`✅ SUCCESS! File deleted: "${format.publicId}"`);
+              break;
+            }
+          } catch (tryError) {
+            console.log(`❌ Failed with "${format.publicId}":`, tryError.message);
+          }
+        }
+      }
+
+    } catch (cloudinaryError) {
+      console.error('⚠️ Cloudinary deletion failed:', cloudinaryError);
+      // Tiếp tục xóa trong database ngay cả khi Cloudinary fail
+    }
+    
+    // 5. Xóa trong database với transaction
+    await executeTransaction(async (connection) => {
+      // Xóa file_tags trước (foreign key)
+      await connection.execute(
+        'DELETE FROM file_tags WHERE file_id = ?',
+        [fileId]
+      );
+      
+      // Xóa file record
+      await connection.execute(
+        'DELETE FROM files WHERE id = ?',
+        [fileId]
+      );
+      
+      console.log(`✅ File ${fileId} deleted from MySQL database`);
+    });
+    
+    // 6. Xóa trong Firestore cho real-time update
+    try {
+      const firestoreGroupId = file.firebase_group_id;
+      
+      await admin.firestore()
+        .collection('groups')
+        .doc(firestoreGroupId)
+        .collection('files')
+        .doc(fileId.toString())
+        .delete();
+      
+      console.log(`✅ File deleted from Firestore: groups/${firestoreGroupId}/files/${fileId}`);
+    } catch (firestoreError) {
+      console.error('⚠️ Firestore deletion failed:', firestoreError);
+      // Không throw error vì MySQL đã thành công
+    }
+    
+    res.json({
+      success: true,
+      message: 'File deleted successfully',
+      data: {
+        deletedFileId: fileId,
+        fileName: file.name
+      }
+    });
+    
+    console.log(`✅ File ${fileId} (${file.name}) deleted successfully by user ${userId}`);
+    
+  } catch (error) {
+    console.error('❌ Error deleting file:', error);
+    console.error('❌ Error stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete file',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createUploadSignature,
   saveFileMetadata,
   getGroupFiles,
+  deleteFile,
   debugUserGroups
 };
