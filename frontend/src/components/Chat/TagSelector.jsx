@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, Plus, Tag, Hash } from 'lucide-react';
+import tagsService from '../../services/tagsService';
 
-const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, className = '' }) => {
+const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, groupId, className = '' }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [isCreatingTag, setIsCreatingTag] = useState(false);
@@ -32,13 +33,17 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, clas
 
   const handleTagToggle = (tag) => {
     if (selectedTags.includes(tag.id)) {
-      onTagsChange(selectedTags.filter(id => id !== tag.id));
+      const newTags = selectedTags.filter(id => id !== tag.id);
+      console.log(`🏷️ Removed tag ${tag.id} (${tag.name}), selectedTags:`, newTags);
+      onTagsChange(newTags);
     } else {
-      onTagsChange([...selectedTags, tag.id]);
+      const newTags = [...selectedTags, tag.id];
+      console.log(`🏷️ Added tag ${tag.id} (${tag.name}), selectedTags:`, newTags);
+      onTagsChange(newTags);
     }
   };
 
-  const handleCreateNewTag = () => {
+  const handleCreateNewTag = async () => {
     const trimmedName = newTagName.trim();
     
     // Validation - button should be disabled so this shouldn't run with invalid input
@@ -48,17 +53,29 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, clas
       return;
     }
     
-    // Create new tag
-    const newTag = {
-      id: Date.now().toString(),
-      name: trimmedName,
-      color: tagColors[Math.floor(Math.random() * tagColors.length)]
-    };
+    if (!groupId) {
+      console.error('No group selected for creating tag');
+      return;
+    }
+
+    setIsCreatingTag(true);
     
-    onAddTag(newTag);
-    onTagsChange([...selectedTags, newTag.id]);
-    setNewTagName('');
-    setIsCreatingTag(false);
+    try {
+      // Create new tag via API
+      const newTag = await tagsService.createTag(groupId, {
+        name: trimmedName,
+        color: tagColors[Math.floor(Math.random() * tagColors.length)]
+      });
+      
+      onAddTag(newTag);
+      onTagsChange([...selectedTags, newTag.id]);
+      setNewTagName('');
+    } catch (error) {
+      console.error('Error creating tag:', error);
+      // You could add error handling here, like showing a toast
+    } finally {
+      setIsCreatingTag(false);
+    }
   };
 
   const getSelectedTagsDisplay = () => {

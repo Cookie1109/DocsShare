@@ -17,6 +17,7 @@ const groupRoutes = require('./src/routes/groupsNew');
 const tagRoutes = require('./src/routes/tags');
 const activityRoutes = require('./src/routes/activities');
 const fileRoutes = require('./src/routes/files');
+const firebaseGroupRoutes = require('./src/routes/firebaseGroups');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -134,6 +135,13 @@ try {
   console.error('❌ Error loading file routes:', error.message);
 }
 
+try {
+  app.use('/api/firebase-groups', firebaseGroupRoutes);
+  console.log('✅ Firebase group routes loaded');
+} catch (error) {
+  console.error('❌ Error loading firebase group routes:', error.message);
+}
+
 console.log('📝 All routes loading completed');
 
 // Simple test endpoint
@@ -203,7 +211,7 @@ const startServer = async () => {
       console.error('⚠️  Some features may not work properly without database');
     }
     
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, '127.0.0.1', () => {
       console.log(`🚀 DocsShare API đang chạy tại port ${PORT}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
       console.log(`📊 Database Status: ${dbConnected ? '✅ Connected' : '❌ Disconnected'}`);
@@ -213,6 +221,15 @@ const startServer = async () => {
       setInterval(() => {
         console.log(`💓 Server heartbeat - ${new Date().toLocaleTimeString()}`);
       }, 10000);
+    });
+
+    // Handle server errors
+    server.on('error', (error) => {
+      console.error('❌ Server error:', error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use`);
+        process.exit(1);
+      }
     });
 
     server.on('error', (error) => {

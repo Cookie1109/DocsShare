@@ -33,6 +33,7 @@ import { getAuth } from 'firebase/auth';
 import TagSelector from './TagSelector';
 import GroupSidebar from './GroupSidebar';
 import { useGroupFiles } from '../../hooks/useGroupFiles';
+import tagsService from '../../services/tagsService';
 
 const ChatArea = ({ user }) => {
   // Get selectedGroup from AuthContext
@@ -44,16 +45,32 @@ const ChatArea = ({ user }) => {
   // Use custom hook for file management
   const { files, loading: filesLoading, error: filesError, uploadFiles, deleteFile, refreshFiles, setError } = useGroupFiles(selectedGroup);
   
-  // Tag management - Chủ đề rau củ quả
-  const [availableTags, setAvailableTags] = useState([
-    { id: '1', name: 'Học tập', color: 'bg-emerald-500' }, // Màu lá xanh
-    { id: '2', name: 'Công việc', color: 'bg-lime-500' }, // Màu chanh
-    { id: '3', name: 'Tài liệu tham khảo', color: 'bg-orange-500' }, // Màu cam
-    { id: '4', name: 'Source code', color: 'bg-purple-500' }, // Màu tím (nho)
-    { id: '5', name: 'Bài tập', color: 'bg-red-500' }, // Màu đỏ (cà chua)
-    { id: '6', name: 'Dự án', color: 'bg-yellow-500' }, // Màu vàng (bí ngô)
-    { id: '7', name: 'Thảo luận', color: 'bg-pink-500' } // Màu hồng (củ cải đường)
-  ]);
+  // Tag management 
+  const [availableTags, setAvailableTags] = useState([]);
+  const [loadingTags, setLoadingTags] = useState(false);
+
+  // Load tags when group changes
+  useEffect(() => {
+    const loadTags = async () => {
+      if (!selectedGroup) {
+        setAvailableTags([]);
+        return;
+      }
+
+      setLoadingTags(true);
+      try {
+        const tags = await tagsService.getGroupTags(selectedGroup);
+        setAvailableTags(tags);
+      } catch (error) {
+        console.error('Error loading tags:', error);
+        setAvailableTags([]);
+      } finally {
+        setLoadingTags(false);
+      }
+    };
+
+    loadTags();
+  }, [selectedGroup]);
 
   // Old static documents for fallback (removing in next step)
   const [groupDocuments, setGroupDocuments] = useState({
@@ -249,19 +266,27 @@ const ChatArea = ({ user }) => {
   };
 
   // Handle file download
-  const handleDownloadFile = (doc) => {
-    // Simulate file download
-    console.log('Đang tải xuống file:', doc.name);
+  const handleDownloadFile = async (doc) => {
+    console.log('🔽 Downloading file:', doc.name);
     
-    // In a real app, you would create a download link or call an API
-    const link = document.createElement('a');
-    link.href = '#'; // In real app, this would be the file URL
-    link.download = doc.name;
-    
-    // Reset search
-    setSearchQuery('');
-    setFilteredDocuments([]);
-    setIsSearchFocused(false);
+    try {
+      // Create download link with file URL
+      const link = document.createElement('a');
+      link.href = doc.url; // Use the file URL from Cloudinary
+      link.download = doc.name;
+      link.target = '_blank';
+      
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log('✅ Download initiated for:', doc.name);
+      
+    } catch (error) {
+      console.error('❌ Download failed:', error);
+      setError('Không thể tải xuống file. Vui lòng thử lại.');
+    }
   };
 
   // Handle navigate to file in chat
@@ -388,8 +413,8 @@ const ChatArea = ({ user }) => {
     setUploading(true);
     
     try {
-      // Convert selected tags to IDs for API
-      const tagIds = selectedTags.map(tag => parseInt(tag.id));
+      // selectedTags is already array of tag IDs (numbers)
+      const tagIds = selectedTags;
       
       // Track uploading files
       const fileNames = pendingFiles.map(file => file.name);
@@ -403,6 +428,7 @@ const ChatArea = ({ user }) => {
       setUploadProgress(initialProgress);
       
       // Use the hook's upload function
+      console.log('🚀 About to upload with tagIds:', tagIds);
       const result = await uploadFiles(pendingFiles, selectedGroup, tagIds);
       
       if (result.success) {
@@ -936,18 +962,10 @@ const ChatArea = ({ user }) => {
                   {/* Action Buttons */}
                   <div className="flex space-x-1">
                     <button 
-                      onClick={(e) => e.stopPropagation()}
-                      className={`p-2 rounded-lg transition-all duration-200 ${
-                        doc.isOwn 
-                          ? 'hover:bg-emerald-100 text-emerald-600 hover:text-emerald-800' 
-                          : 'hover:bg-orange-100 text-orange-600 hover:text-orange-800'
-                      }`}
-                      title="Xem file"
-                    >
-                      <Eye className="h-5 w-5" />
-                    </button>
-                    <button 
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownloadFile(doc);
+                      }}
                       className={`p-2 rounded-lg transition-all duration-200 ${
                         doc.isOwn 
                           ? 'hover:bg-emerald-100 text-emerald-600 hover:text-emerald-800' 
@@ -1151,6 +1169,7 @@ const ChatArea = ({ user }) => {
                     selectedTags={selectedTags}
                     onTagsChange={setSelectedTags}
                     onAddTag={addNewTag}
+                    groupId={selectedGroup}
                   />
                 </div>
               </div>

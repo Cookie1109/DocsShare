@@ -217,6 +217,8 @@ const saveFileMetadata = async (req, res) => {
         tagsMap[tag.id.toString()] = tag.name;
       });
 
+      console.log(`🏷️ Saving to Firebase - TagIds: ${JSON.stringify(tagIds)}, AssignedTags: ${JSON.stringify(result.assignedTags)}, TagsMap: ${JSON.stringify(tagsMap)}`);
+
       // Tạo document trong Firestore
       const fileDoc = {
         id: result.fileId,
