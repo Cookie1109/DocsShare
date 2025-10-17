@@ -294,18 +294,32 @@ const ChatArea = ({ user }) => {
     console.log('🔽 Downloading file:', doc.name);
     
     try {
-      // Create download link with file URL
+      // Fetch file as blob to bypass CORS download name restriction
+      const response = await fetch(doc.url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      
+      // Create blob URL
+      const blobUrl = window.URL.createObjectURL(blob);
+      
+      // Create download link
       const link = document.createElement('a');
-      link.href = doc.url; // Use the file URL from Cloudinary
-      link.download = doc.name;
-      link.target = '_blank';
+      link.href = blobUrl;
+      link.download = doc.name; // This will work with blob URLs
       
       // Trigger download
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       
-      console.log('✅ Download initiated for:', doc.name);
+      // Cleanup blob URL
+      window.URL.revokeObjectURL(blobUrl);
+      
+      console.log('✅ Download completed for:', doc.name);
       
     } catch (error) {
       console.error('❌ Download failed:', error);

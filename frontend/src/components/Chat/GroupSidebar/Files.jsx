@@ -73,9 +73,35 @@ const Files = ({ group, documents, availableTags, currentUser, isAdmin }) => {
     return filtered;
   }, [documents, searchQuery, selectedTag, sortBy]);
 
-  const handleDownload = (doc) => {
-    // TODO: Implement download functionality
-    console.log('Download file:', doc);
+  const handleDownload = async (doc) => {
+    console.log('🔽 Downloading file:', doc.name);
+    
+    try {
+      // Fetch file as blob to bypass CORS download name restriction
+      const response = await fetch(doc.url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      
+      // Create and trigger download link
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = doc.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Cleanup
+      window.URL.revokeObjectURL(blobUrl);
+      
+      console.log('✅ Download completed for:', doc.name);
+    } catch (error) {
+      console.error('❌ Download failed:', error);
+    }
   };
 
   const handleDelete = (doc) => {
