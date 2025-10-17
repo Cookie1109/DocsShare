@@ -1,11 +1,23 @@
-import React, { useState } from 'react';
-import { X, Plus, Tag, Hash } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Plus, Tag, Hash, Trash2, AlertTriangle } from 'lucide-react';
 import tagsService from '../../services/tagsService';
 
 const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, groupId, className = '' }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [isCreatingTag, setIsCreatingTag] = useState(false);
+  
+  // Delete confirmation state
+  const [tagToDelete, setTagToDelete] = useState(null);
+  const [isDeletingTag, setIsDeletingTag] = useState(false);
+  
+  // Local state to ensure immediate updates
+  const [localTags, setLocalTags] = useState(availableTags);
+  
+  // Sync local tags with props
+  useEffect(() => {
+    setLocalTags(availableTags);
+  }, [availableTags]);
 
   // Predefined tag colors
   const tagColors = [
@@ -19,16 +31,6 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
     'bg-orange-500',
     'bg-teal-500',
     'bg-cyan-500'
-  ];
-
-  // Suggested quick tags for new users
-  const suggestedTags = [
-    { name: 'Bài tập', color: 'bg-red-500' },
-    { name: 'Đồ án', color: 'bg-blue-500' },
-    { name: 'Slide bài giảng', color: 'bg-green-500' },
-    { name: 'Tài liệu tham khảo', color: 'bg-yellow-500' },
-    { name: 'Code mẫu', color: 'bg-purple-500' },
-    { name: 'Ôn tập', color: 'bg-pink-500' }
   ];
 
   const handleTagToggle = (tag) => {
@@ -49,7 +51,7 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
     // Validation - button should be disabled so this shouldn't run with invalid input
     if (!trimmedName || 
         trimmedName.length > 20 || 
-        availableTags.find(tag => tag.name.toLowerCase() === trimmedName.toLowerCase())) {
+        localTags.find(tag => tag.name.toLowerCase() === trimmedName.toLowerCase())) {
       return;
     }
     
@@ -67,9 +69,22 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
         color: tagColors[Math.floor(Math.random() * tagColors.length)]
       });
       
+      console.log('🎉 New tag created:', newTag);
+      console.log('📋 Current localTags before update:', localTags);
+      
+      // Update local tags immediately for instant UI update
+      setLocalTags(prev => {
+        const updated = [...prev, newTag];
+        console.log('📋 Updated localTags:', updated);
+        return updated;
+      });
+      
+      // Notify parent
       onAddTag(newTag);
       onTagsChange([...selectedTags, newTag.id]);
       setNewTagName('');
+      
+      console.log('✅ Tag added to selection and local list, tagId:', newTag.id);
     } catch (error) {
       console.error('Error creating tag:', error);
       // You could add error handling here, like showing a toast
@@ -79,7 +94,47 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
   };
 
   const getSelectedTagsDisplay = () => {
-    return availableTags.filter(tag => selectedTags.includes(tag.id));
+    const selected = localTags.filter(tag => selectedTags.includes(tag.id));
+    console.log('🔍 getSelectedTagsDisplay - selectedTags:', selectedTags, 'localTags count:', localTags.length, 'found:', selected);
+    return selected;
+  };
+
+  const handleDeleteTag = async (tagToDelete) => {
+    if (!tagToDelete || !groupId) return;
+    
+    setIsDeletingTag(true);
+    
+    try {
+      console.log(`🗑️ Deleting tag: ${tagToDelete.name} (ID: ${tagToDelete.id})`);
+      
+      // Call API to delete tag
+      const result = await tagsService.deleteTag(groupId, tagToDelete.id);
+      
+      console.log(`✅ Tag deleted successfully. ${result.filesAffected} file(s) affected.`);
+      
+      // Remove from local tags immediately (optimistic update)
+      setLocalTags(prev => prev.filter(t => t.id !== tagToDelete.id));
+      
+      // Remove from selected tags if it was selected
+      if (selectedTags.includes(tagToDelete.id)) {
+        onTagsChange(selectedTags.filter(id => id !== tagToDelete.id));
+      }
+      
+      // Notify parent to update their state
+      if (onAddTag) {
+        // Use negative ID to signal deletion
+        onAddTag({ id: tagToDelete.id, _deleted: true });
+      }
+      
+      // Close confirmation dialog
+      setTagToDelete(null);
+      
+    } catch (error) {
+      console.error('❌ Error deleting tag:', error);
+      alert(`Không thể xóa tag: ${error.message}`);
+    } finally {
+      setIsDeletingTag(false);
+    }
   };
 
   return (
@@ -89,34 +144,6 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
         <Tag className="inline h-3.5 w-3.5 mr-1" />
         Gắn thẻ phân loại (tùy chọn)
       </label>
-
-      {/* Quick suggestions for empty state */}
-      {selectedTags.length === 0 && availableTags.length === 0 && !isDropdownOpen && (
-        <div className="mb-3">
-          <p className="text-xs text-gray-600 mb-2 font-normal">Gợi ý thẻ phổ biến:</p>
-          <div className="flex flex-wrap gap-1">
-            {suggestedTags.map((tag, index) => (
-              <button
-                key={index}
-                type="button"
-                onClick={() => {
-                  const newTag = {
-                    id: Date.now().toString() + index,
-                    name: tag.name,
-                    color: tag.color
-                  };
-                  onAddTag(newTag);
-                  onTagsChange([newTag.id]);
-                }}
-                className={`inline-flex items-center px-2 py-1 rounded-full text-xs text-white ${tag.color} hover:opacity-80 transition-opacity`}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                {tag.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Selected tags display */}
       <div className="min-h-[40px] border border-gray-300 rounded-lg p-2 bg-white cursor-pointer hover:border-gray-400 transition-colors"
@@ -154,41 +181,61 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
       {isDropdownOpen && (
         <div 
           className="relative z-40 mt-2 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 flex flex-col"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            console.log('📂 Dropdown opened - localTags:', localTags.map(t => ({id: t.id, name: t.name})));
+          }}
         >
           {/* Available tags */}
           <div className="p-3 flex-1 overflow-hidden pb-2">
             <div className="text-xs text-gray-600 mb-2 font-normal flex items-center">
               <Hash className="h-2.5 w-2.5 mr-1" />
-              Thẻ đã có ({availableTags.length}):
+              Thẻ đã có ({localTags.length}):
             </div>
-            {availableTags.length === 0 ? (
+            {localTags.length === 0 ? (
               <div className="text-sm text-gray-400 py-3 text-center">
                 <Tag className="h-8 w-8 mx-auto mb-2 text-gray-300" />
                 Chưa có thẻ nào
               </div>
             ) : (
               <div className="space-y-2 max-h-36 overflow-y-auto pr-2 pb-2" style={{pointerEvents: 'auto'}}>
-                {availableTags.map(tag => (
+                {localTags.map(tag => (
                   <div key={tag.id}
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         handleTagToggle(tag);
-                       }}
-                       className={`flex items-center p-2 rounded cursor-pointer transition-colors ${
+                       className={`flex items-center p-2 rounded transition-colors group ${
                          selectedTags.includes(tag.id) 
                            ? 'bg-green-50 border border-green-200 shadow-sm' 
                            : 'hover:bg-gray-50 border border-transparent'
                        }`}>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs text-white ${tag.color} mr-3`}>
-                      <Hash className="h-2.5 w-2.5 mr-1" />
-                      {tag.name}
-                    </span>
-                    {selectedTags.includes(tag.id) ? (
-                      <span className="ml-auto text-green-600 text-sm font-normal">✓</span>
-                    ) : (
-                      <span className="ml-auto text-gray-400 text-xs">Click</span>
-                    )}
+                    <div 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTagToggle(tag);
+                      }}
+                      className="flex items-center flex-1 cursor-pointer"
+                    >
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs text-white ${tag.color} mr-3`}>
+                        <Hash className="h-2.5 w-2.5 mr-1" />
+                        {tag.name}
+                      </span>
+                      {selectedTags.includes(tag.id) ? (
+                        <span className="ml-auto text-green-600 text-sm font-normal">✓</span>
+                      ) : (
+                        <span className="ml-auto text-gray-400 text-xs">Click</span>
+                      )}
+                    </div>
+                    
+                    {/* Delete button - hiện khi hover */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTagToDelete(tag);
+                      }}
+                      className="ml-2 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all"
+                      title="Xóa thẻ này"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -239,7 +286,7 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
                 </div>
                 
                 {/* Duplicate check warning */}
-                {newTagName.trim() && availableTags.find(tag => tag.name.toLowerCase() === newTagName.trim().toLowerCase()) && (
+                {newTagName.trim() && localTags.find(tag => tag.name.toLowerCase() === newTagName.trim().toLowerCase()) && (
                   <div className="text-xs text-red-500 flex items-center">
                     <span className="mr-1">⚠️</span>
                     Thẻ này đã tồn tại
@@ -255,7 +302,7 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
                     disabled={
                       !newTagName.trim() || 
                       newTagName.trim().length > 20 ||
-                      availableTags.find(tag => tag.name.toLowerCase() === newTagName.trim().toLowerCase())
+                      localTags.find(tag => tag.name.toLowerCase() === newTagName.trim().toLowerCase())
                     }
                     className="flex-1 px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                   >
@@ -289,6 +336,89 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
             setNewTagName('');
           }}
         />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {tagToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-in">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <AlertTriangle className="h-5 w-5 text-red-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Xóa thẻ phân loại</h3>
+                </div>
+                <button 
+                  onClick={() => setTagToDelete(null)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-full hover:bg-gray-100"
+                  disabled={isDeletingTag}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <div className="mb-4">
+                <p className="text-gray-700 mb-3">
+                  Bạn có chắc chắn muốn xóa thẻ này không?
+                </p>
+                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm text-white ${tagToDelete.color}`}>
+                    <Hash className="h-3 w-3 mr-1" />
+                    {tagToDelete.name}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <p className="text-yellow-800 text-sm">
+                  <strong>⚠️ Lưu ý:</strong> Thẻ này sẽ được xóa khỏi tất cả các file đang sử dụng.
+                </p>
+              </div>
+
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-red-800 text-sm">
+                  <strong>🗑️ Cảnh báo:</strong> Hành động này không thể hoàn tác!
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-100">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setTagToDelete(null)}
+                  disabled={isDeletingTag}
+                  className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors font-medium"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={() => handleDeleteTag(tagToDelete)}
+                  disabled={isDeletingTag}
+                  className="flex-1 px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-red-400 transition-colors font-medium flex items-center justify-center"
+                >
+                  {isDeletingTag ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                      Đang xóa...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Xóa thẻ
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

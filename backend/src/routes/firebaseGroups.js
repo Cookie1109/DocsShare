@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { executeQuery } = require('../config/db');
 const verifyFirebaseToken = require('../middleware/firebaseAuth');
+const admin = require('../config/firebaseAdmin');
 
 // Apply Firebase auth middleware to all routes
 router.use(verifyFirebaseToken);
@@ -179,8 +180,22 @@ router.post('/:firestoreGroupId/tags', async (req, res) => {
       [name.trim(), mysqlGroupId, userId]
     );
 
-    // Handle different result formats
-    const insertId = result.insertId || result[0]?.insertId || result?.affectedRows > 0 ? Date.now() : null;
+    console.log('📝 Insert result:', result);
+
+    // Handle different result formats - properly extract insertId
+    let insertId;
+    if (Array.isArray(result) && result[0]) {
+      // If result is array, check first element
+      insertId = result[0].insertId || result[0].id;
+    } else if (result.insertId) {
+      // Direct insertId property
+      insertId = result.insertId;
+    } else {
+      console.error('❌ Could not extract insertId from result:', result);
+      throw new Error('Failed to get tag ID from database');
+    }
+    
+    console.log('✅ Tag created with ID:', insertId);
     
     const newTag = {
       id: insertId,
@@ -197,6 +212,122 @@ router.post('/:firestoreGroupId/tags', async (req, res) => {
 
   } catch (error) {
     console.error('Error creating Firebase group tag:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+/**
+ * DELETE /api/firebase-groups/:firestoreGroupId/tags/:tagId
+ * Delete a tag from a Firebase group
+ */
+router.delete('/:firestoreGroupId/tags/:tagId', async (req, res) => {
+  try {
+    const { firestoreGroupId, tagId } = req.params;
+    const userId = req.user.uid;
+
+    console.log(`🗑️ Delete tag request: tagId=${tagId}, firestoreGroupId=${firestoreGroupId}, userId=${userId}`);
+
+    // 1. Get MySQL group ID from mapping
+    const mappingResult = await executeQuery(
+      `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+      [firestoreGroupId]
+    );
+
+    const mapping = Array.isArray(mappingResult[0]) ? mappingResult[0] : (Array.isArray(mappingResult) ? mappingResult : [mappingResult]);
+
+    if (!mapping || mapping.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Group not found'
+      });
+    }
+
+    const mysqlGroupId = mapping[0].mysql_id;
+
+    // 2. Check if tag exists and belongs to this group
+    const tagCheckResult = await executeQuery(
+      `SELECT id, name FROM tags WHERE id = ? AND group_id = ?`,
+      [tagId, mysqlGroupId]
+    );
+
+    const tagCheck = Array.isArray(tagCheckResult[0]) ? tagCheckResult[0] : (Array.isArray(tagCheckResult) ? tagCheckResult : [tagCheckResult]);
+
+    console.log('🔍 tagCheck result:', tagCheck, 'length:', tagCheck.length);
+
+    if (!tagCheck || tagCheck.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Tag not found or does not belong to this group'
+      });
+    }
+
+    const tagName = tagCheck[0].name;
+
+    // 3. Get file count using this tag
+    const fileCountResult = await executeQuery(
+      `SELECT COUNT(*) as count FROM file_tags WHERE tag_id = ?`,
+      [tagId]
+    );
+
+    const fileCount = Array.isArray(fileCountResult[0]) ? fileCountResult[0] : (Array.isArray(fileCountResult) ? fileCountResult : [fileCountResult]);
+
+    const filesUsingTag = fileCount[0]?.count || 0;
+    console.log(`📊 Tag "${tagName}" is used by ${filesUsingTag} file(s)`);
+
+    // 4. Get all files that have this tag (before deleting)
+    const filesWithTagResult = await executeQuery(
+      `SELECT file_id FROM file_tags WHERE tag_id = ?`,
+      [tagId]
+    );
+    
+    const filesWithTag = Array.isArray(filesWithTagResult[0]) ? filesWithTagResult[0] : (Array.isArray(filesWithTagResult) ? filesWithTagResult : [filesWithTagResult]);
+    const fileIdsToUpdate = filesWithTag.map(row => row.file_id);
+    
+    console.log(`📝 Files to update in Firestore:`, fileIdsToUpdate);
+
+    // 5. Delete the tag from MySQL (CASCADE will handle file_tags)
+    await executeQuery(
+      `DELETE FROM tags WHERE id = ?`,
+      [tagId]
+    );
+
+    console.log(`✅ Tag ${tagId} deleted from MySQL successfully`);
+
+    // 6. Update Firestore - remove tagId from all files
+    if (fileIdsToUpdate.length > 0) {
+      const db = admin.firestore();
+      const batch = db.batch();
+      
+      for (const fileId of fileIdsToUpdate) {
+        const fileRef = db.collection('groups').doc(firestoreGroupId).collection('files').doc(fileId.toString());
+        
+        // Remove from both tagIds array and tags object
+        batch.update(fileRef, {
+          tagIds: admin.firestore.FieldValue.arrayRemove(parseInt(tagId)),
+          [`tags.${tagId}`]: admin.firestore.FieldValue.delete()
+        });
+      }
+      
+      await batch.commit();
+      console.log(`✅ Updated ${fileIdsToUpdate.length} files in Firestore, removed tagId ${tagId} from both tagIds and tags`);
+    }
+
+    console.log(`✅ Tag ${tagId} deleted completely`);
+
+    res.json({
+      success: true,
+      message: 'Tag deleted successfully',
+      data: {
+        tagId: parseInt(tagId),
+        filesAffected: filesUsingTag
+      }
+    });
+
+  } catch (error) {
+    console.error('Error deleting Firebase group tag:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error'

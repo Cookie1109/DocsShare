@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Upload, 
   File, 
@@ -49,28 +49,30 @@ const ChatArea = ({ user }) => {
   const [availableTags, setAvailableTags] = useState([]);
   const [loadingTags, setLoadingTags] = useState(false);
 
+  // Load tags function (can be called manually)
+  const loadTags = useCallback(async () => {
+    if (!selectedGroup) {
+      setAvailableTags([]);
+      return;
+    }
+
+    setLoadingTags(true);
+    try {
+      const tags = await tagsService.getGroupTags(selectedGroup);
+      console.log('📥 Loaded tags from backend:', tags);
+      setAvailableTags(tags);
+    } catch (error) {
+      console.error('Error loading tags:', error);
+      setAvailableTags([]);
+    } finally {
+      setLoadingTags(false);
+    }
+  }, [selectedGroup]);
+
   // Load tags when group changes
   useEffect(() => {
-    const loadTags = async () => {
-      if (!selectedGroup) {
-        setAvailableTags([]);
-        return;
-      }
-
-      setLoadingTags(true);
-      try {
-        const tags = await tagsService.getGroupTags(selectedGroup);
-        setAvailableTags(tags);
-      } catch (error) {
-        console.error('Error loading tags:', error);
-        setAvailableTags([]);
-      } finally {
-        setLoadingTags(false);
-      }
-    };
-
     loadTags();
-  }, [selectedGroup]);
+  }, [loadTags]);
 
   // Old static documents for fallback (removing in next step)
   const [groupDocuments, setGroupDocuments] = useState({
@@ -256,12 +258,34 @@ const ChatArea = ({ user }) => {
 
   // Get tag info by ID
   const getTagInfo = (tagId) => {
-    return availableTags.find(tag => tag.id === tagId);
+    // Handle both string and number tag IDs
+    const tag = availableTags.find(tag => tag.id == tagId); // Using == for loose comparison
+    if (!tag) {
+      console.warn(`⚠️ Tag not found for ID ${tagId} (type: ${typeof tagId}). Available tags:`, availableTags.map(t => ({id: t.id, type: typeof t.id, name: t.name})));
+    }
+    return tag;
   };
 
   // Add new tag
   const addNewTag = (tag) => {
-    setAvailableTags(prev => [...prev, tag]);
+    console.log('🆕 Adding new tag to availableTags:', tag);
+    
+    // Handle tag deletion signal
+    if (tag._deleted) {
+      setAvailableTags(prev => {
+        const updated = prev.filter(t => t.id !== tag.id);
+        console.log('🗑️ Tag deleted from availableTags:', tag.id);
+        return updated;
+      });
+      return;
+    }
+    
+    // Normal tag addition
+    setAvailableTags(prev => {
+      const updated = [...prev, tag];
+      console.log('📋 Updated availableTags:', updated);
+      return updated;
+    });
     return tag.id;
   };
 
@@ -433,6 +457,10 @@ const ChatArea = ({ user }) => {
       
       if (result.success) {
         console.log('✅ Upload successful:', result.message);
+        
+        // Reload tags to ensure newly created tags are in the list
+        console.log('🔄 Reloading tags after upload...');
+        await loadTags();
         
         // Mark all as completed
         const completedProgress = {};
@@ -837,7 +865,8 @@ const ChatArea = ({ user }) => {
                 <p className="text-orange-700 text-sm">
                   🎯 <strong>Vai trò của bạn:</strong> {currentGroup?.userRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}<br/>
                   📚 <strong>Mục tiêu:</strong> Chia sẻ tài liệu học tập và làm việc hiệu quả<br/>
-                  🌱 Bắt đầu chia sẻ file đầu tiên để khởi động cuộc trò chuyện!
+                  �️ <strong>Tính năng:</strong> Gắn tag để phân loại file dễ dàng hơn<br/>
+                  �🌱 Bắt đầu chia sẻ file đầu tiên để khởi động cuộc trò chuyện!
                 </p>
               </div>
               <button
@@ -938,19 +967,16 @@ const ChatArea = ({ user }) => {
                     
                     {/* Tags */}
                     {doc.tags && doc.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
+                      <div className="flex flex-wrap gap-1.5 mt-2">
                         {doc.tags.map((tagId) => {
                           const tag = getTagInfo(tagId);
                           return tag ? (
                             <span 
                               key={tagId}
-                              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                doc.isOwn 
-                                  ? `${tag.color} text-white shadow-sm` 
-                                  : `${tag.color} text-white shadow-sm`
-                              }`}
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${tag.color} text-white shadow-sm hover:shadow-md transition-shadow cursor-default`}
+                              title={`Tag: ${tag.name}`}
                             >
-                              <Hash className="h-2.5 w-2.5 mr-0.5" />
+                              <Hash className="h-3 w-3 mr-0.5" />
                               {tag.name}
                             </span>
                           ) : null;
@@ -1172,6 +1198,29 @@ const ChatArea = ({ user }) => {
                     groupId={selectedGroup}
                   />
                 </div>
+                
+                {/* Show selected tags summary */}
+                {selectedTags.length > 0 && (
+                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-xs font-medium text-green-700 mb-2">
+                      ✓ {selectedTags.length} tag được chọn - Sẽ được gắn vào tất cả {pendingFiles.length} file
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedTags.map((tagId) => {
+                        const tag = getTagInfo(tagId);
+                        return tag ? (
+                          <span 
+                            key={tagId}
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${tag.color} text-white shadow-sm`}
+                          >
+                            <Hash className="h-2.5 w-2.5 mr-0.5" />
+                            {tag.name}
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

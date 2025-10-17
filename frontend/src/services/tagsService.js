@@ -76,6 +76,36 @@ class TagsService {
     }
   }
 
+  // Delete a tag
+  async deleteTag(firebaseGroupId, tagId) {
+    try {
+      const token = await this.getAuthToken();
+      
+      const response = await fetch(`${API_BASE_URL}/firebase-groups/${firebaseGroupId}/tags/${tagId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to delete tag: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to delete tag');
+      }
+
+      return data.data;
+    } catch (error) {
+      console.error('Error deleting tag:', error);
+      throw error;
+    }
+  }
+
   // Get tag colors for display
   getTagColors() {
     return [

@@ -383,22 +383,37 @@ const getGroupFiles = async (req, res) => {
       ORDER BY f.created_at ASC
     `, [mysqlGroupId]);
 
-    // Parse tags JSON
-    const filesWithTags = files.map(file => ({
-      id: file.id,
-      name: file.name,
-      url: file.storage_path,
-      size: file.size_bytes,
-      mimeType: file.mime_type,
-      uploader: {
-        uid: file.uploader_id,
-        name: file.uploader_name,
-        email: file.uploader_email
-      },
-      tags: file.tags_json ? JSON.parse(`[${file.tags_json}]`) : [],
-      downloadCount: file.download_count,
-      createdAt: file.created_at
-    }));
+    // Parse tags JSON and extract tag IDs
+    const filesWithTags = files.map(file => {
+      let tagsArray = [];
+      let tagIds = [];
+      
+      if (file.tags_json) {
+        try {
+          tagsArray = JSON.parse(`[${file.tags_json}]`);
+          tagIds = tagsArray.map(t => t.id).filter(id => id != null);
+        } catch (err) {
+          console.error('Error parsing tags JSON:', err);
+        }
+      }
+      
+      return {
+        id: file.id,
+        name: file.name,
+        url: file.storage_path,
+        size: file.size_bytes,
+        mimeType: file.mime_type,
+        uploader: {
+          uid: file.uploader_id,
+          name: file.uploader_name,
+          email: file.uploader_email
+        },
+        tags: tagsArray,
+        tagIds: tagIds,
+        downloadCount: file.download_count,
+        createdAt: file.created_at
+      };
+    });
 
     res.json({
       success: true,

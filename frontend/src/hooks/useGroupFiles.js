@@ -10,6 +10,10 @@ export const useGroupFiles = (selectedGroup) => {
 
   // Transform API data to UI format
   const transformFileData = useCallback((apiFile) => {
+    // Extract tag IDs from apiFile
+    // Backend returns tagIds array containing the tag IDs
+    const tagIds = apiFile.tagIds || [];
+    
     return {
       id: apiFile.id,
       name: apiFile.name,
@@ -20,7 +24,7 @@ export const useGroupFiles = (selectedGroup) => {
       downloads: apiFile.downloadCount || 0,
       views: 0,
       isOwn: apiFile.uploader.uid === getCurrentUserId(),
-      tags: apiFile.tags || [],
+      tags: tagIds, // Array of tag IDs (numbers)
       url: apiFile.url
     };
   }, []);
