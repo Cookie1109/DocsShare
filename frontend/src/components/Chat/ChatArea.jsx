@@ -74,6 +74,22 @@ const ChatArea = ({ user }) => {
     loadTags();
   }, [loadTags]);
 
+  // Auto scroll to bottom when files are loaded (show latest files first)
+  useEffect(() => {
+    if (files && files.length > 0 && chatAreaRef.current && !filesLoading) {
+      // Use setTimeout to ensure DOM is updated
+      setTimeout(() => {
+        if (chatAreaRef.current) {
+          chatAreaRef.current.scrollTo({
+            top: chatAreaRef.current.scrollHeight,
+            behavior: 'instant' // Use instant for initial load
+          });
+          console.log('📍 Auto-scrolled to bottom - showing latest files');
+        }
+      }, 100);
+    }
+  }, [files, filesLoading, selectedGroup]); // Trigger when files change or group changes
+
   // Old static documents for fallback (removing in next step)
   const [groupDocuments, setGroupDocuments] = useState({
     '1': [ // Nhóm React Developers
