@@ -125,6 +125,56 @@ class User {
   }
 
   /**
+   * Cập nhật thông tin hồ sơ người dùng
+   * @param {string} userId - Firebase UID
+   * @param {Object} updates - Dữ liệu cập nhật
+   * @returns {Promise<Object>} Kết quả cập nhật
+   */
+  static async updateProfile(userId, updates) {
+    try {
+      const allowedFields = ['display_name', 'tag', 'avatar_url'];
+      const fields = [];
+      const values = [];
+      
+      Object.keys(updates).forEach(key => {
+        if (allowedFields.includes(key) && updates[key] !== undefined) {
+          fields.push(`${key} = ?`);
+          values.push(updates[key]);
+        }
+      });
+      
+      if (fields.length === 0) {
+        return { success: false, error: 'No valid fields to update' };
+      }
+      
+      values.push(userId);
+      
+      const query = `
+        UPDATE users 
+        SET ${fields.join(', ')}
+        WHERE id = ?
+      `;
+      
+      await executeQuery(query, values);
+      
+      return {
+        success: true,
+        message: 'Profile updated successfully'
+      };
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      
+      if (error.code === 'ER_DUP_ENTRY') {
+        if (error.message.includes('unique_name_tag')) {
+          return { success: false, error: 'Tên và tag đã được sử dụng' };
+        }
+      }
+      
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Cập nhật thời gian đăng nhập cuối
    * @param {string} userId - Firebase UID
    * @returns {Promise<boolean>} Kết quả cập nhật

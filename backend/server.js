@@ -18,6 +18,9 @@ const tagRoutes = require('./src/routes/tags');
 const activityRoutes = require('./src/routes/activities');
 const fileRoutes = require('./src/routes/files');
 const firebaseGroupRoutes = require('./src/routes/firebaseGroups');
+const firebaseUserRoutes = require('./src/routes/firebaseUsers');
+const invitationRoutes = require('./src/routes/invitations');
+const profileRoutes = require('./src/routes/profile');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -140,6 +143,27 @@ try {
   console.log('✅ Firebase group routes loaded');
 } catch (error) {
   console.error('❌ Error loading firebase group routes:', error.message);
+}
+
+try {
+  app.use('/api/firebase-users', firebaseUserRoutes);
+  console.log('✅ Firebase user routes loaded');
+} catch (error) {
+  console.error('❌ Error loading firebase user routes:', error.message);
+}
+
+try {
+  app.use('/api/invitations', invitationRoutes);
+  console.log('✅ Invitation routes loaded');
+} catch (error) {
+  console.error('❌ Error loading invitation routes:', error.message);
+}
+
+try {
+  app.use('/api/profile', profileRoutes);
+  console.log('✅ Profile routes loaded');
+} catch (error) {
+  console.error('❌ Error loading profile routes:', error.message);
 }
 
 console.log('📝 All routes loading completed');

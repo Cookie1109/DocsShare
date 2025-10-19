@@ -38,13 +38,8 @@ export const signUpWithEmail = async (email, displayName, userTag, password) => 
     const result = await createUserWithEmailAndPassword(auth, email, password);
     const user = result.user;
     
-    // Update profile
-    await updateProfile(user, {
-      displayName: `${displayName}#${userTag}`
-    });
-    
-    // Create user document in Firestore
-    await setDoc(doc(db, 'users', user.uid), {
+    // Prepare user data
+    const userData = {
       uid: user.uid,
       email: user.email,
       displayName: displayName,
@@ -54,9 +49,35 @@ export const signUpWithEmail = async (email, displayName, userTag, password) => 
       role: 'member',
       createdAt: serverTimestamp(),
       lastActive: serverTimestamp()
+    };
+    
+    // Run Firebase profile update and Firestore creation in parallel
+    await Promise.all([
+      updateProfile(user, {
+        displayName: `${displayName}#${userTag}`
+      }),
+      setDoc(doc(db, 'users', user.uid), userData)
+    ]);
+    
+    // Sync to MySQL in background - don't wait for it
+    user.getIdToken().then(token => {
+      fetch('http://localhost:5000/api/profile/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          displayName,
+          tag: userTag
+        })
+      }).catch(apiError => {
+        console.error('Error syncing to MySQL:', apiError);
+      });
     });
     
-    return { success: true, user };
+    // Return immediately with user data (no need to fetch from Firestore again)
+    return { success: true, user, userData };
   } catch (error) {
     console.error('Error signing up:', error);
     let errorMessage = 'Đã xảy ra lỗi khi đăng ký';
@@ -85,9 +106,11 @@ export const signInWithCredentials = async (usernameOrEmail, password) => {
     
     const result = await signInWithEmailAndPassword(auth, email, password);
     
-    // Update last active
-    await updateDoc(doc(db, 'users', result.user.uid), {
+    // Update last active in background - don't wait for it
+    updateDoc(doc(db, 'users', result.user.uid), {
       lastActive: serverTimestamp()
+    }).catch(error => {
+      console.error('Error updating last active:', error);
     });
     
     return { success: true, user: result.user };
@@ -122,12 +145,14 @@ export const signInWithGoogle = async () => {
     // Check if user document exists
     const userDoc = await getDoc(doc(db, 'users', user.uid));
     
+    let userData;
+    
     if (!userDoc.exists()) {
       // Create new user document
       const randomTag = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
       const displayName = user.displayName ? user.displayName.split(' ')[0] : 'User';
       
-      await setDoc(doc(db, 'users', user.uid), {
+      userData = {
         uid: user.uid,
         email: user.email,
         displayName: displayName,
@@ -137,17 +162,35 @@ export const signInWithGoogle = async () => {
         role: 'member',
         createdAt: serverTimestamp(),
         lastActive: serverTimestamp()
+      };
+      
+      // Create document in background - don't wait
+      setDoc(doc(db, 'users', user.uid), userData).catch(error => {
+        console.error('Error creating user document:', error);
       });
+      
+      // Return immediately with prepared data
+      return { success: true, user, userData };
     } else {
-      // Update last active
-      await updateDoc(doc(db, 'users', user.uid), {
+      // Update last active in background - don't wait
+      updateDoc(doc(db, 'users', user.uid), {
         lastActive: serverTimestamp()
+      }).catch(error => {
+        console.error('Error updating last active:', error);
       });
+      
+      // Return existing user data
+      return { success: true, user, userData: userDoc.data() };
     }
-    
-    return { success: true, user };
   } catch (error) {
     console.error('Error signing in with Google:', error);
+    
+    // Check if user cancelled the popup
+    if (error.code === 'auth/popup-closed-by-user' || 
+        error.code === 'auth/cancelled-popup-request') {
+      return { success: false, cancelled: true };
+    }
+    
     return { success: false, error: 'Đăng nhập Google thất bại' };
   }
 };

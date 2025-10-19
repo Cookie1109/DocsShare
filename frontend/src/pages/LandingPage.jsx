@@ -20,7 +20,8 @@ import {
   Instagram,
   Phone,
   MapPin,
-  Heart
+  Heart,
+  Loader
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -39,6 +40,10 @@ const LandingPage = () => {
     password: ''
   });
   
+  // Loading states
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [googleLoginLoading, setGoogleLoginLoading] = useState(false);
+  
   // Error state for login
   const [loginError, setLoginError] = useState('');
   const [hasLoginError, setHasLoginError] = useState(false);
@@ -52,30 +57,64 @@ const LandingPage = () => {
     confirmPassword: ''
   });
   
+  // Loading states for register
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [googleRegisterLoading, setGoogleRegisterLoading] = useState(false);
+  
   // Error state for register
   const [registerError, setRegisterError] = useState('');
   const [hasRegisterError, setHasRegisterError] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    
     // Reset error state
     setLoginError('');
     setHasLoginError(false);
     
-    const result = await login(loginData.email, loginData.password);
-    if (result.success) {
-      setShowLoginModal(false);
-      navigate('/chat');
-    } else {
-      // Show error
-      setLoginError(result.error || 'Email hoặc mật khẩu không đúng');
+    // Basic validation
+    if (!loginData.email.trim() || !loginData.password) {
+      setLoginError('Vui lòng nhập đầy đủ thông tin');
       setHasLoginError(true);
+      return;
+    }
+    
+    // Show loading
+    setLoginLoading(true);
+    
+    try {
+      const result = await login(loginData.email, loginData.password);
+      if (result.success) {
+        setShowLoginModal(false);
+        navigate('/chat');
+      } else {
+        // Show error
+        setLoginError(result.error || 'Email hoặc mật khẩu không đúng');
+        setHasLoginError(true);
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      setLoginError('Đã xảy ra lỗi. Vui lòng thử lại.');
+      setHasLoginError(true);
+    } finally {
+      setLoginLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
+    setGoogleLoginLoading(true);
+    setLoginError('');
+    setHasLoginError(false);
+    
     try {
       const result = await loginWithGoogle();
+      
+      // Check if user cancelled the popup - turn off loading IMMEDIATELY
+      if (result.cancelled) {
+        setGoogleLoginLoading(false);
+        return;
+      }
+      
       if (result.success) {
         setShowLoginModal(false);
         navigate('/chat');
@@ -87,39 +126,66 @@ const LandingPage = () => {
       console.error('Google login error:', error);
       setLoginError('Đăng nhập Google thất bại');
       setHasLoginError(true);
+    } finally {
+      setGoogleLoginLoading(false);
     }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    
     // Reset error state
     setRegisterError('');
     setHasRegisterError(false);
     
     // Validation
-    if (registerData.password !== registerData.confirmPassword) {
-      setRegisterError('Mật khẩu không khớp!');
-      setHasRegisterError(true);
-      return;
-    }
-    if (!registerData.displayName.trim() || !registerData.userTag.trim()) {
-      setRegisterError('Vui lòng nhập đầy đủ tên và tag!');
-      setHasRegisterError(true);
-      return;
-    }
     if (!registerData.email.trim()) {
       setRegisterError('Vui lòng nhập email!');
       setHasRegisterError(true);
       return;
     }
-    if (registerData.password.length < 6) {
-      setRegisterError('Mật khẩu phải có ít nhất 6 ký tự!');
+    if (!registerData.displayName.trim()) {
+      setRegisterError('Vui lòng nhập tên hiển thị!');
+      setHasRegisterError(true);
+      return;
+    }
+    if (!registerData.userTag.trim()) {
+      setRegisterError('Vui lòng nhập tag!');
+      setHasRegisterError(true);
+      return;
+    }
+    if (!/^\d{4,6}$/.test(registerData.userTag)) {
+      setRegisterError('Tag phải có từ 4-6 chữ số!');
+      setHasRegisterError(true);
+      return;
+    }
+    if (!registerData.password) {
+      setRegisterError('Vui lòng nhập mật khẩu!');
+      setHasRegisterError(true);
+      return;
+    }
+    if (registerData.password.length < 8) {
+      setRegisterError('Mật khẩu phải có ít nhất 8 ký tự!');
+      setHasRegisterError(true);
+      return;
+    }
+    if (registerData.password !== registerData.confirmPassword) {
+      setRegisterError('Mật khẩu xác nhận không khớp!');
       setHasRegisterError(true);
       return;
     }
     
+    // Show loading
+    setRegisterLoading(true);
+    
     try {
-      const result = await register(registerData);
+      const result = await register({
+        email: registerData.email.trim(),
+        displayName: registerData.displayName.trim(),
+        userTag: registerData.userTag.trim(),
+        password: registerData.password
+      });
+      
       if (result.success) {
         setShowRegisterModal(false);
         navigate('/chat');
@@ -131,12 +197,25 @@ const LandingPage = () => {
       console.error('Register error:', error);
       setRegisterError('Đã xảy ra lỗi không mong muốn');
       setHasRegisterError(true);
+    } finally {
+      setRegisterLoading(false);
     }
   };
 
   const handleGoogleRegister = async () => {
+    setGoogleRegisterLoading(true);
+    setRegisterError('');
+    setHasRegisterError(false);
+    
     try {
       const result = await loginWithGoogle();
+      
+      // Check if user cancelled the popup - turn off loading IMMEDIATELY
+      if (result.cancelled) {
+        setGoogleRegisterLoading(false);
+        return;
+      }
+      
       if (result.success) {
         setShowRegisterModal(false);
         navigate('/chat');
@@ -148,6 +227,8 @@ const LandingPage = () => {
       console.error('Google register error:', error);
       setRegisterError('Đăng ký Google thất bại');
       setHasRegisterError(true);
+    } finally {
+      setGoogleRegisterLoading(false);
     }
   };
 
@@ -335,6 +416,22 @@ const LandingPage = () => {
       {/* Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          {/* Loading Overlay */}
+          {loginLoading && (
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm z-10 flex items-center justify-center">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm mx-4">
+                <div className="flex flex-col items-center space-y-4">
+                  <Loader className="h-12 w-12 text-green-600 animate-spin" />
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                      Đang đăng nhập...
+                    </h3>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div className="bg-white rounded-2xl max-w-md w-full p-8 relative">
             <button
               onClick={() => setShowLoginModal(false)}
@@ -466,6 +563,22 @@ const LandingPage = () => {
       {/* Register Modal */}
       {showRegisterModal && (
         <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          {/* Loading Overlay */}
+          {registerLoading && (
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm z-10 flex items-center justify-center">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm mx-4">
+                <div className="flex flex-col items-center space-y-4">
+                  <Loader className="h-12 w-12 text-green-600 animate-spin" />
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                      Đang tạo tài khoản...
+                    </h3>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div className="bg-white rounded-2xl max-w-md w-full p-8 relative">
             <button
               onClick={() => setShowRegisterModal(false)}

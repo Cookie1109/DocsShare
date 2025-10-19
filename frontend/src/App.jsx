@@ -6,6 +6,7 @@ import HomePage from './pages/HomePage';
 import LandingPage from './pages/LandingPage';
 import RegisterPage from './pages/RegisterPage';
 import ChatPage from './pages/ChatPage';
+import OnboardingModal from './components/Onboarding/OnboardingModal';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -39,11 +40,17 @@ const PublicRoute = ({ children }) => {
 
 // App Content Component
 const AppContent = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, profileIncomplete, completeProfile } = useAuth();
 
   return (
-    <Router>
-      <Routes>
+    <>
+      <OnboardingModal 
+        isOpen={profileIncomplete} 
+        onComplete={completeProfile} 
+      />
+      
+      <Router>
+        <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="/register" element={
@@ -138,8 +145,9 @@ const AppContent = () => {
             </div>
           </Layout>
         } />
-      </Routes>
-    </Router>
+        </Routes>
+      </Router>
+    </>
   );
 };
 

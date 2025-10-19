@@ -909,8 +909,17 @@ const ChatArea = ({ user }) => {
             </div>
           </div>
         ) : (
-          /* File Messages */
+          /* File Messages and System Messages */
           getCurrentGroupDocuments().map((doc) => (
+            // Check if it's a system message
+            doc.type === 'system' ? (
+              <div key={doc.id} className="flex justify-center my-4">
+                <div className="bg-gray-100 px-4 py-2 rounded-full text-sm text-gray-600 flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  {doc.content || doc.name}
+                </div>
+              </div>
+            ) : (
             <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3 group relative">
               {/* Message with Avatar */}
               <div className={`flex items-end gap-2 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -1057,6 +1066,7 @@ const ChatArea = ({ user }) => {
                 )}
               </div>
             </div>
+            ) // Close ternary for file message
           ))
         )}
 

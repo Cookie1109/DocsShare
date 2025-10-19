@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ChatSidebar from '../components/Chat/ChatSidebar';
 import ChatArea from '../components/Chat/ChatArea';
+import InvitationNotifications from '../components/Chat/InvitationNotifications';
 import { useAuth } from '../contexts/AuthContext';
 import { Users, Settings, LogOut, User, Edit2, Camera, X } from 'lucide-react';
 import Logo from '../assets/Logo.png';
@@ -75,6 +76,52 @@ const ChatPage = () => {
     }
   };
 
+  // Show skeleton loading while user data is loading
+  if (user?.loading) {
+    return (
+      <div className="h-screen flex bg-green-50 overflow-hidden">
+        <div className="w-80 bg-white shadow-sm border-r border-green-100 flex flex-col">
+          {/* Header skeleton */}
+          <div className="bg-white border-b border-gray-200 p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-12 h-12 bg-gray-200 rounded-xl animate-pulse"></div>
+                <div className="space-y-2">
+                  <div className="h-4 w-24 bg-gray-200 rounded animate-pulse"></div>
+                  <div className="h-3 w-32 bg-gray-200 rounded animate-pulse"></div>
+                </div>
+              </div>
+              <div className="w-8 h-8 bg-gray-200 rounded-full animate-pulse"></div>
+            </div>
+          </div>
+          {/* Sidebar content skeleton */}
+          <div className="flex-1 p-4 space-y-3">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-16 bg-gray-200 rounded-lg animate-pulse"></div>
+            ))}
+          </div>
+        </div>
+        {/* Main content skeleton */}
+        <div className="flex-1 flex flex-col">
+          <div className="h-16 bg-white border-b border-gray-200 px-6 flex items-center">
+            <div className="h-6 w-48 bg-gray-200 rounded animate-pulse"></div>
+          </div>
+          <div className="flex-1 p-6 space-y-4">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex space-x-3">
+                <div className="w-10 h-10 bg-gray-200 rounded-full animate-pulse"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-32 bg-gray-200 rounded animate-pulse"></div>
+                  <div className="h-16 bg-gray-200 rounded-lg animate-pulse"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="h-screen flex items-center justify-center bg-green-50">
@@ -116,7 +163,7 @@ const ChatPage = () => {
         <div className="bg-white border-b border-gray-200 p-6">
           <div className="flex items-center justify-between">
             {/* Logo và tên */}
-            <div className="flex items-center">
+            <div className="flex items-center flex-1">
               <div className="mr-3">
                 <img 
                   src={Logo} 
@@ -130,6 +177,8 @@ const ChatPage = () => {
               </div>
             </div>
             
+            {/* Notification Bell */}
+            <InvitationNotifications />
 
           </div>
         </div>

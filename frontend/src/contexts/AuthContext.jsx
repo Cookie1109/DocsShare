@@ -33,26 +33,46 @@ export const AuthProvider = ({ children }) => {
   const [userGroups, setUserGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [groupMembers, setGroupMembers] = useState([]);
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
 
   // Firebase auth state listener
   useEffect(() => {
     const unsubscribe = onAuthStateChange(async (firebaseUser) => {
       if (firebaseUser) {
-        const userData = await getUserData(firebaseUser.uid);
-        if (userData.success) {
-          setUser({
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            ...userData.data
-          });
-        }
+        // OPTIMISTIC UI: Set basic user immediately, load details in background
+        setUser({
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName || 'Loading...',
+          loading: true
+        });
+        setLoading(false);  // Allow app to render immediately
+        
+        // Load full data in background
+        Promise.all([
+          getUserData(firebaseUser.uid),
+          checkProfileStatus(firebaseUser)
+        ]).then(([userData]) => {
+          if (userData.success) {
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              ...userData.data,
+              loading: false
+            });
+          }
+        }).catch(error => {
+          console.error('Error loading user data:', error);
+          setUser(prev => ({...prev, loading: false}));
+        });
       } else {
         setUser(null);
         setUserGroups([]);
         setSelectedGroup(null);
         setGroupMembers([]);
+        setProfileIncomplete(false);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -60,28 +80,84 @@ export const AuthProvider = ({ children }) => {
 
   // Load user groups when user changes
   useEffect(() => {
-    if (user?.uid) {
+    if (user?.uid && !profileIncomplete) {
       loadUserGroups();
     }
-  }, [user?.uid]);
+  }, [user?.uid, profileIncomplete]);
+
+  const checkProfileStatus = async (firebaseUser) => {
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch('http://localhost:5000/api/profile/status', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success && !data.completed) {
+        setProfileIncomplete(true);
+      } else {
+        setProfileIncomplete(false);
+      }
+    } catch (error) {
+      console.error('Error checking profile status:', error);
+      setProfileIncomplete(false);
+    }
+  };
+
+  const completeProfile = async () => {
+    setProfileIncomplete(false);
+    // Reload user data
+    if (user?.uid) {
+      const userData = await getUserData(user.uid);
+      if (userData.success) {
+        setUser({
+          uid: user.uid,
+          email: user.email,
+          ...userData.data
+        });
+      }
+    }
+  };
 
   const login = async (email, password) => {
     try {
       const result = await signInWithCredentials(email, password);
       
       if (result.success) {
-        const userData = await getUserData(result.user.uid);
-        if (userData.success) {
-          setUser({
-            uid: result.user.uid,
-            email: result.user.email,
-            ...userData.data
-          });
-          return { success: true };
-        } else {
-          // User authenticated but no user data found
-          return { success: false, error: 'Không thể lấy thông tin người dùng' };
-        }
+        // OPTIMISTIC UI: Set basic user info immediately and return success
+        // This allows immediate navigation while data loads in background
+        setUser({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName || 'Loading...',
+          loading: true  // Flag to show skeleton in UI
+        });
+        
+        // Load full user data and check profile in background
+        Promise.all([
+          getUserData(result.user.uid),
+          checkProfileStatus(result.user)
+        ]).then(([userData]) => {
+          if (userData.success) {
+            // Update with full user data
+            setUser({
+              uid: result.user.uid,
+              email: result.user.email,
+              ...userData.data,
+              loading: false
+            });
+          }
+        }).catch(error => {
+          console.error('Error loading user data:', error);
+          // Keep basic user info even if background load fails
+          setUser(prev => ({...prev, loading: false}));
+        });
+        
+        // Return success immediately for instant navigation
+        return { success: true };
       }
       
       // Return specific error from Firebase service
@@ -103,15 +179,19 @@ export const AuthProvider = ({ children }) => {
       const result = await signUpWithEmail(userData.email, userData.displayName, userData.userTag, userData.password);
       
       if (result.success) {
-        const userDataResult = await getUserData(result.user.uid);
-        if (userDataResult.success) {
-          setUser({
-            uid: result.user.uid,
-            email: result.user.email,
-            ...userDataResult.data
-          });
-          return { success: true };
-        }
+        // OPTIMISTIC UI: Set user data immediately for instant navigation
+        setUser({
+          uid: result.user.uid,
+          email: result.user.email,
+          ...result.userData,
+          loading: false  // Registration already has full data
+        });
+        
+        // Profile is complete for email registration
+        setProfileIncomplete(false);
+        
+        // Return success immediately
+        return { success: true };
       }
       
       return { success: false, error: result.error };
@@ -136,16 +216,27 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await signInWithGoogle();
       
+      // Check if user cancelled the popup
+      if (result.cancelled) {
+        return { success: false, cancelled: true };
+      }
+      
       if (result.success) {
-        const userData = await getUserData(result.user.uid);
-        if (userData.success) {
-          setUser({
-            uid: result.user.uid,
-            email: result.user.email,
-            ...userData.data
-          });
-          return { success: true };
-        }
+        // OPTIMISTIC UI: Set user data immediately for instant navigation
+        setUser({
+          uid: result.user.uid,
+          email: result.user.email,
+          ...result.userData,
+          loading: false  // Google login already has full data
+        });
+        
+        // Check profile status in background - don't wait for it
+        checkProfileStatus(result.user).catch(error => {
+          console.error('Error checking profile status:', error);
+        });
+        
+        // Return success immediately
+        return { success: true };
       }
       
       return { success: false, error: result.error };
@@ -347,6 +438,8 @@ export const AuthProvider = ({ children }) => {
     logout,
     loginWithGoogle,
     updateProfile,
+    profileIncomplete,
+    completeProfile,
     
     // Groups
     userGroups,

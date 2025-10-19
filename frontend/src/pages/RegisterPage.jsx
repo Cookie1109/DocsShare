@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
-    name: '',
+    email: '',
     displayName: '',
     userTag: '',
     password: '',
@@ -39,11 +39,11 @@ const RegisterPage = () => {
   const validateForm = () => {
     const newErrors = {};
 
-    // Name validation
-    if (!formData.name.trim()) {
-      newErrors.name = 'Vui lòng nhập họ tên';
-    } else if (formData.name.trim().length < 2) {
-      newErrors.name = 'Họ tên phải có ít nhất 2 ký tự';
+    // Email validation
+    if (!formData.email.trim()) {
+      newErrors.email = 'Vui lòng nhập email';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Email không hợp lệ';
     }
 
     // Display Name validation
@@ -56,10 +56,8 @@ const RegisterPage = () => {
     // User Tag validation
     if (!formData.userTag) {
       newErrors.userTag = 'Vui lòng nhập tag';
-    } else if (!/^\d+$/.test(formData.userTag)) {
-      newErrors.userTag = 'Tag phải là số';
-    } else if (formData.userTag.length > 6) {
-      newErrors.userTag = 'Tag không được quá 6 số';
+    } else if (!/^\d{4,6}$/.test(formData.userTag)) {
+      newErrors.userTag = 'Tag phải có từ 4-6 chữ số';
     }
 
     // Password validation
@@ -117,19 +115,21 @@ const RegisterPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Clear previous messages
+    setMessage({ type: '', content: '' });
+    
+    // Validate form first
     if (!validateForm()) {
       return;
     }
 
+    // Show loading state immediately after validation passes
     setLoading(true);
-    setMessage({ type: '', content: '' });
 
     try {
-      const fullUsername = `${formData.displayName}#${formData.userTag}`;
       const result = await register({
-        name: formData.name.trim(),
-        username: fullUsername,
-        displayName: formData.displayName,
+        email: formData.email.trim(),
+        displayName: formData.displayName.trim(),
         userTag: formData.userTag,
         password: formData.password
       });
@@ -162,6 +162,25 @@ const RegisterPage = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-blue-50 py-12 px-4 sm:px-6 lg:px-8">
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm mx-4">
+            <div className="flex flex-col items-center space-y-4">
+              <Loader className="h-12 w-12 text-green-600 animate-spin" />
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                  Đang tạo tài khoản...
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Vui lòng đợi trong giây lát
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center">
@@ -198,32 +217,33 @@ const RegisterPage = () => {
           )}
 
           <div className="space-y-4">
-            {/* Name Field */}
+            {/* Email Field */}
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                Họ và tên *
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Email *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-5 w-5 text-gray-400" />
+                  <Mail className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  autoComplete="name"
-                  value={formData.name}
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  value={formData.email}
                   onChange={handleChange}
-                  className={`block w-full pl-10 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
-                    errors.name ? 'border-red-300' : 'border-gray-300'
+                  disabled={loading}
+                  className={`block w-full pl-10 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                    errors.email ? 'border-red-300' : 'border-gray-300'
                   }`}
-                  placeholder="Nhập họ và tên của bạn"
+                  placeholder="example@email.com"
                 />
               </div>
-              {errors.name && (
+              {errors.email && (
                 <p className="mt-2 text-sm text-red-600 flex items-center">
                   <AlertCircle className="h-4 w-4 mr-1" />
-                  {errors.name}
+                  {errors.email}
                 </p>
               )}
             </div>
@@ -245,7 +265,8 @@ const RegisterPage = () => {
                     type="text"
                     value={formData.displayName}
                     onChange={handleChange}
-                    className={`block w-full pl-10 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
+                    disabled={loading}
+                    className={`block w-full pl-10 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed ${
                       errors.displayName ? 'border-red-300' : 'border-gray-300'
                     }`}
                     placeholder="Cookie"
@@ -274,7 +295,8 @@ const RegisterPage = () => {
                     type="text"
                     value={formData.userTag}
                     onChange={handleChange}
-                    className={`block w-full pl-8 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
+                    disabled={loading}
+                    className={`block w-full pl-8 pr-3 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed ${
                       errors.userTag ? 'border-red-300' : 'border-gray-300'
                     }`}
                     placeholder="1109"
@@ -315,7 +337,8 @@ const RegisterPage = () => {
                   autoComplete="new-password"
                   value={formData.password}
                   onChange={handleChange}
-                  className={`block w-full pl-10 pr-10 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
+                  disabled={loading}
+                  className={`block w-full pl-10 pr-10 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed ${
                     errors.password ? 'border-red-300' : 'border-gray-300'
                   }`}
                   placeholder="Nhập mật khẩu"
@@ -324,7 +347,8 @@ const RegisterPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="text-gray-400 hover:text-gray-500 focus:outline-none focus:text-gray-500 transition duration-150 ease-in-out"
+                    disabled={loading}
+                    className="text-gray-400 hover:text-gray-500 focus:outline-none focus:text-gray-500 transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {showPassword ? (
                       <EyeOff className="h-5 w-5" />
@@ -376,7 +400,8 @@ const RegisterPage = () => {
                   autoComplete="new-password"
                   value={formData.confirmPassword}
                   onChange={handleChange}
-                  className={`block w-full pl-10 pr-10 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out ${
+                  disabled={loading}
+                  className={`block w-full pl-10 pr-10 py-3 border rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition duration-150 ease-in-out disabled:bg-gray-100 disabled:cursor-not-allowed ${
                     errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
                   }`}
                   placeholder="Nhập lại mật khẩu"
@@ -385,7 +410,8 @@ const RegisterPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="text-gray-400 hover:text-gray-500 focus:outline-none focus:text-gray-500 transition duration-150 ease-in-out"
+                    disabled={loading}
+                    className="text-gray-400 hover:text-gray-500 focus:outline-none focus:text-gray-500 transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="h-5 w-5" />
@@ -434,13 +460,13 @@ const RegisterPage = () => {
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out"
+              className="group relative w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent text-base font-semibold rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 ease-in-out"
             >
               {loading ? (
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Đang tạo tài khoản...
-                </div>
+                <>
+                  <Loader className="h-5 w-5 animate-spin" />
+                  <span>Đang tạo tài khoản...</span>
+                </>
               ) : (
                 'Tạo tài khoản'
               )}

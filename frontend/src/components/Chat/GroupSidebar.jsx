@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
+import AddMemberModal from './AddMemberModal';
 
 const GroupSidebar = ({ group, onClose }) => {
   const [activeTab, setActiveTab] = useState('members');
@@ -202,12 +203,8 @@ const GroupSidebar = ({ group, onClose }) => {
 
   // Invite member functions (simplified for now)
   const handleInviteMember = () => {
-    if (inviteEmail.trim()) {
-      // TODO: Implement user search and invitation
-      alert('Chức năng thêm thành viên sẽ được phát triển trong phiên bản tiếp theo');
-      setInviteEmail('');
-      setShowInviteModal(false);
-    }
+    // Open the AddMemberModal
+    setShowInviteModal(true);
   };
 
   // Group management functions
@@ -632,61 +629,12 @@ const GroupSidebar = ({ group, onClose }) => {
       )}
 
       {/* Invite Member Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-                  <UserPlus className="h-5 w-5 text-emerald-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900">Mời thành viên mới</h3>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email người dùng
-                  </label>
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="Nhập email để mời..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none"
-                    autoFocus
-                  />
-                </div>
-                
-                <div className="bg-emerald-50 p-3 rounded-lg">
-                  <p className="text-sm text-emerald-700">
-                    💡 Lời mời sẽ được gửi qua email. Người dùng có thể tham gia nhóm sau khi xác nhận.
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex gap-3 justify-end mt-6">
-                <button
-                  onClick={() => {
-                    setShowInviteModal(false);
-                    setInviteEmail('');
-                  }}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={handleInviteMember}
-                  disabled={!inviteEmail.trim()}
-                  className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Gửi lời mời
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <AddMemberModal
+        isOpen={showInviteModal}
+        groupId={currentGroup?.id}
+        groupName={currentGroup?.name}
+        onClose={() => setShowInviteModal(false)}
+      />
 
       {/* Delete Group Confirmation Modal */}
       {showDeleteGroupModal && (
