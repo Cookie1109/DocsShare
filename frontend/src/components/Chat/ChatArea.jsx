@@ -39,7 +39,7 @@ import { getFirestore, collection, query, orderBy, onSnapshot } from 'firebase/f
 
 const ChatArea = ({ user, onBackClick, isMobileView }) => {
   // Get selectedGroup from AuthContext
-  const { selectedGroup, userGroups } = useAuth();
+  const { selectedGroup, userGroups, groupMembers } = useAuth();
   
   // Get current group object
   const currentGroup = userGroups.find(g => g.id === selectedGroup);
@@ -195,6 +195,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
   });
 
   const [dragOver, setDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [selectedTags, setSelectedTags] = useState([]);
@@ -480,17 +481,43 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
 
   const handleDragOver = (e) => {
     e.preventDefault();
-    setDragOver(true);
+    e.stopPropagation();
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setDragOver(true);
+      // Try multiple methods to bring browser to front and minimize file explorer
+      try {
+        window.focus();
+        document.body.focus();
+        // Force browser window to front
+        if (window.parent !== window) {
+          window.parent.focus();
+        }
+      } catch (err) {
+        console.log('Could not focus window:', err);
+      }
+    }
   };
 
   const handleDragLeave = (e) => {
     e.preventDefault();
-    setDragOver(false);
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setDragOver(false);
+    }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOver(false);
+    dragCounterRef.current = 0;
     
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
@@ -714,7 +741,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
           : 'w-full'
       } flex flex-col min-w-0 transition-all duration-300 ease-in-out`}>
       {/* Header - Professional Style */}
-      <div className="bg-white border-b border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4 shadow-sm flex-shrink-0">
+      <div className="bg-white border-b border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4 shadow-sm flex-shrink-0 relative z-40">
         <div className="flex items-center justify-between gap-2 sm:gap-4">
           {/* Left: Back button (mobile) + Group Info */}
           <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
@@ -738,25 +765,22 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center">
                 <h3 className="font-semibold text-gray-800 truncate">
                   {currentGroup?.name || 'Chọn nhóm để bắt đầu'}
                 </h3>
-                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
               </div>
-              <div className="flex items-center gap-3 text-sm text-gray-600">
+              <div className="flex items-center text-sm text-gray-600">
                 <span className="flex items-center gap-1">
                   <Users className="w-4 h-4" />
-                  {currentGroup ? '?' : '0'} thành viên
+                  {groupMembers?.length || 0} thành viên
                 </span>
-                <span>•</span>
-                <span>Hoạt động</span>
               </div>
             </div>
           </div>
 
           {/* Right: Search and Menu */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 relative z-50">
             {/* Search */}
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -780,7 +804,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                     setFilteredDocuments([]);
                   }, 200);
                 }}
-                className="w-32 sm:w-48 md:w-64 lg:w-96 pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-full focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none bg-gray-50 hover:bg-gray-100 focus:bg-white focus:text-gray-800 transition-all placeholder:text-gray-400 text-gray-700"
+                className="w-36 sm:w-48 md:w-64 lg:w-96 pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-full focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none bg-gray-50 hover:bg-gray-100 focus:bg-white focus:text-gray-800 transition-all placeholder:text-gray-400 text-gray-700"
               />
               
               {searchQuery && (
@@ -797,7 +821,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
               
               {/* Search Results Dropdown */}
               {isSearchFocused && searchQuery && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-emerald-100 z-50 max-h-80 overflow-hidden">
+                <div className="absolute top-full right-0 mt-2 mr-0 sm:mr-0 w-[calc(100vw-4rem)] sm:w-[360px] md:w-[400px] lg:w-[480px] xl:w-[530px] bg-white rounded-xl shadow-2xl border border-emerald-100 z-[9999] max-h-80 overflow-hidden">
                   {filteredDocuments.length > 0 ? (
                     <>
                       <div className="px-4 py-3 border-b border-emerald-100 bg-emerald-50">
@@ -819,10 +843,10 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                               </div>
                             </div>
                             <div 
-                              className="flex-1 min-w-0 cursor-pointer hover:bg-emerald-50 rounded-lg p-1 -m-1 transition-colors"
+                              className="flex-1 cursor-pointer hover:bg-emerald-50 rounded-lg p-1 -m-1 transition-colors"
                               onClick={() => handleNavigateToFile(doc)}
                             >
-                              <p className="text-sm font-medium text-gray-900 truncate">{doc.name}</p>
+                              <p className="text-sm font-medium text-gray-900 break-words">{doc.name}</p>
                               <p className="text-xs text-gray-500">{doc.uploadedBy} • {doc.size}</p>
                               {/* Show tags if available */}
                               {doc.tags && doc.tags.length > 0 && (
@@ -902,6 +926,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
         data-chat-area
         className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6 space-y-3 sm:space-y-4"
         onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
@@ -1154,12 +1179,12 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
 
 
 
-        {/* Drag overlay */}
+        {/* Drag overlay - Full screen */}
         {dragOver && (
-          <div className="fixed inset-0 bg-emerald-500 bg-opacity-20 flex items-center justify-center z-10">
-            <div className="bg-white rounded-2xl p-8 shadow-xl border border-emerald-200">
-              <Upload className="h-12 w-12 text-emerald-500 mx-auto mb-4" />
-              <p className="text-lg font-semibold text-emerald-800">Thả file để tải lên</p>
+          <div className="fixed inset-0 bg-emerald-500/90 backdrop-blur-sm flex items-center justify-center z-[9999]">
+            <div className="bg-white rounded-3xl p-12 shadow-2xl border-4 border-emerald-300 animate-bounce">
+              <Upload className="h-20 w-20 text-emerald-500 mx-auto mb-6" />
+              <p className="text-2xl font-bold text-emerald-800 text-center">Thả file để tải lên</p>
             </div>
           </div>
         )}
@@ -1243,8 +1268,26 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
 
       {/* Upload Dialog */}
       {showUploadDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
-          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl max-w-2xl w-full h-[85vh] sm:h-[75vh] md:h-[70vh] flex flex-col overflow-hidden">
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4"
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOver(false);
+            dragCounterRef.current = 0;
+            
+            const newFiles = Array.from(e.dataTransfer.files);
+            if (newFiles.length > 0) {
+              // Add new files to existing pending files
+              setPendingFiles(prev => [...prev, ...newFiles]);
+              console.log(`✅ Added ${newFiles.length} more files to upload queue`);
+            }
+          }}
+        >
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl max-w-2xl w-full h-[95vh] sm:h-[90vh] md:h-[85vh] flex flex-col overflow-hidden relative">
             <div className="p-4 sm:p-6 border-b border-gray-100 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900">Tải lên file</h3>
@@ -1304,6 +1347,28 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                             {uploadStatus === 'failed' && ' • Thất bại'}
                           </p>
                         </div>
+                        
+                        {/* Remove button - only show if not uploading or completed */}
+                        {!isUploading && uploadStatus !== 'completed' && (
+                          <button
+                            onClick={() => {
+                              const newFiles = pendingFiles.filter((_, i) => i !== index);
+                              setPendingFiles(newFiles);
+                              console.log(`🗑️ Removed file: ${file.name}`);
+                              
+                              // Close dialog if no files left
+                              if (newFiles.length === 0) {
+                                setShowUploadDialog(false);
+                                setSelectedTags([]);
+                                console.log('✅ All files removed, closing dialog');
+                              }
+                            }}
+                            className="flex-shrink-0 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Xóa file"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -1321,29 +1386,6 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                     groupId={selectedGroup}
                   />
                 </div>
-                
-                {/* Show selected tags summary */}
-                {selectedTags.length > 0 && (
-                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <p className="text-xs font-medium text-green-700 mb-2">
-                      ✓ {selectedTags.length} tag được chọn - Sẽ được gắn vào tất cả {pendingFiles.length} file
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {selectedTags.map((tagId) => {
-                        const tag = getTagInfo(tagId);
-                        return tag ? (
-                          <span 
-                            key={tagId}
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${tag.color} text-white shadow-sm`}
-                          >
-                            <Hash className="h-2.5 w-2.5 mr-0.5" />
-                            {tag.name}
-                          </span>
-                        ) : null;
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -1380,6 +1422,16 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                 </button>
               </div>
             </div>
+            
+            {/* Drag overlay for adding more files */}
+            {dragOver && (
+              <div className="absolute inset-0 bg-emerald-500/95 backdrop-blur-sm flex items-center justify-center z-50 rounded-xl sm:rounded-2xl">
+                <div className="bg-white rounded-3xl p-8 shadow-2xl border-4 border-emerald-300">
+                  <Upload className="h-16 w-16 text-emerald-500 mx-auto mb-4" />
+                  <p className="text-xl font-bold text-emerald-800 text-center">Thả file để tải lên</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

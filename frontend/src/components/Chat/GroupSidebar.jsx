@@ -385,9 +385,9 @@ const GroupSidebar = ({ group, onClose }) => {
                 <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">Thành viên ({groupMembers?.length || 0})</h3>
                 <button
                   onClick={() => setShowInviteModal(true)}
-                  className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-xs sm:text-sm whitespace-nowrap flex-shrink-0"
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-sm font-medium whitespace-nowrap flex-shrink-0 shadow-sm"
                 >
-                  <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <UserPlus className="h-4 w-4" />
                   <span className="hidden sm:inline">Mời thành viên</span>
                   <span className="sm:hidden">Mời</span>
                 </button>
