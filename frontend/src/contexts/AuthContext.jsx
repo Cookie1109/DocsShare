@@ -14,8 +14,11 @@ import {
   removeGroupMember,
   getUserRoleInGroup,
   updateMemberRole,
-  deleteGroupFromFirestore
+  deleteGroupFromFirestore,
+  updateUserProfile
 } from '../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 const AuthContext = createContext();
 
@@ -77,6 +80,43 @@ export const AuthProvider = ({ children }) => {
 
     return () => unsubscribe();
   }, []);
+
+  // Real-time listener for user profile updates
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    console.log('🔥 Setting up real-time listener for user:', user.uid);
+    
+    const userDocRef = doc(db, 'users', user.uid);
+    const unsubscribe = onSnapshot(userDocRef, (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const updatedData = docSnapshot.data();
+        console.log('📡 Real-time update received:', updatedData);
+        
+        setUser(prev => {
+          const newUser = {
+            ...prev,
+            ...updatedData,
+            name: updatedData.username || prev?.name,
+            avatar: updatedData.avatar,
+            displayName: updatedData.displayName
+          };
+          
+          // Update localStorage
+          localStorage.setItem('docsshare_user', JSON.stringify(newUser));
+          
+          return newUser;
+        });
+      }
+    }, (error) => {
+      console.error('❌ Real-time listener error:', error);
+    });
+
+    return () => {
+      console.log('🔌 Cleaning up real-time listener');
+      unsubscribe();
+    };
+  }, [user?.uid]);
 
   // Load user groups when user changes
   useEffect(() => {
@@ -251,7 +291,40 @@ export const AuthProvider = ({ children }) => {
       console.log('Updating profile with data:', updatedData);
       console.log('Current user:', user);
       
-      const updatedUser = { ...user, ...updatedData };
+      if (!user?.uid) {
+        return { success: false, error: 'Người dùng chưa đăng nhập' };
+      }
+
+      // Prepare data for Firestore
+      const firestoreUpdates = {};
+      
+      if (updatedData.name) {
+        firestoreUpdates.displayName = updatedData.name.split('#')[0];
+        firestoreUpdates.username = updatedData.name;
+        if (updatedData.name.includes('#')) {
+          firestoreUpdates.userTag = updatedData.name.split('#')[1];
+        }
+      }
+      
+      if (updatedData.avatar !== undefined) {
+        firestoreUpdates.avatar = updatedData.avatar;
+      }
+
+      console.log('Firestore updates:', firestoreUpdates);
+
+      // Update in Firestore
+      const result = await updateUserProfile(user.uid, firestoreUpdates);
+      
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+
+      // Update local state (real-time listener sẽ tự động sync)
+      const updatedUser = { 
+        ...user, 
+        ...firestoreUpdates,
+        name: firestoreUpdates.username || user.name
+      };
       console.log('Updated user:', updatedUser);
       
       setUser(updatedUser);
