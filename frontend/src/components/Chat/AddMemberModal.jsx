@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Search, UserPlus, Loader, Check, AlertCircle } from 'lucide-react';
 import { auth } from '../../config/firebase';
+import { getFirestore, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
 const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -32,41 +33,88 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
     }
   }, [isOpen]);
 
-  // Debounced search
+  // Debounced search - Search directly from Firebase
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2) {
       setSearchResults([]);
       return;
     }
 
-    console.log('🔍 Searching for:', searchQuery);
+    console.log('🔍 Searching Firebase for:', searchQuery);
     setIsSearching(true);
-    setError(''); // Clear previous errors
+    setError('');
     
     const timeoutId = setTimeout(async () => {
       try {
-        console.log('🌐 Making API request...');
-        const token = await auth.currentUser.getIdToken();
+        const db = getFirestore();
+        const usersRef = collection(db, 'users');
         
-        const response = await fetch(
-          `http://localhost:5000/api/firebase-users/search?q=${encodeURIComponent(searchQuery)}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+        // Parse search query
+        const searchTrimmed = searchQuery.trim();
+        let searchName = '';
+        let searchTag = '';
+        
+        // Check if query contains '#' (tag separator)
+        if (searchTrimmed.includes('#')) {
+          const parts = searchTrimmed.split('#');
+          searchName = parts[0].toLowerCase().trim();
+          searchTag = parts[1] ? parts[1].toLowerCase().trim() : '';
+          console.log('🏷️ Searching by name + tag:', { searchName, searchTag });
+        } else if (searchTrimmed.startsWith('#')) {
+          // Search by tag only (#2200)
+          searchTag = searchTrimmed.substring(1).toLowerCase().trim();
+          console.log('🏷️ Searching by tag only:', searchTag);
+        } else {
+          // Search by name only (Cookie)
+          searchName = searchTrimmed.toLowerCase();
+          console.log('👤 Searching by name only:', searchName);
+        }
+        
+        // Get all users and filter client-side
+        const q = query(usersRef, limit(100));
+        const snapshot = await getDocs(q);
+        
+        const results = [];
+        snapshot.forEach(doc => {
+          const userData = doc.data();
+          const displayName = (userData.displayName || '').toLowerCase();
+          const username = (userData.username || '').toLowerCase(); // Username field (Cookie#2200)
+          const email = (userData.email || '').toLowerCase();
+          const userTag = (userData.userTag || '').toLowerCase(); // userTag field (2200)
+          
+          let matches = false;
+          
+          if (searchName && searchTag) {
+            // Both name and tag provided (Cookie#2200)
+            matches = displayName.includes(searchName) && userTag.includes(searchTag);
+          } else if (searchTag) {
+            // Tag only (#2200)
+            matches = userTag.includes(searchTag);
+          } else if (searchName) {
+            // Name only (Cookie) - search in displayName, username, or email
+            matches = displayName.includes(searchName) || 
+                     username.includes(searchName) || 
+                     email.includes(searchName);
           }
-        );
-
-        console.log('📡 Response status:', response.status);
-
-        if (!response.ok) throw new Error('Search failed');
-
-        const data = await response.json();
-        console.log('✅ Search results:', data.data);
-        setSearchResults(data.data || []);
+          
+          if (matches) {
+            results.push({
+              uid: doc.id,
+              displayName: userData.displayName || 'Unknown',
+              username: userData.username || '',
+              email: userData.email || '',
+              photoURL: userData.photoURL || userData.avatar || null,
+              userTag: userData.userTag || '' // Include userTag in results
+            });
+          }
+        });
+        
+        console.log('✅ Firebase search results:', results.length, 'users found');
+        console.log('📋 Results:', results);
+        setSearchResults(results);
       } catch (err) {
-        console.error('❌ Search error:', err);
-        setError('Không thể tìm kiếm người dùng');
+        console.error('❌ Firebase search error:', err);
+        setError('Không thể tìm kiếm người dùng từ Firebase');
       } finally {
         setIsSearching(false);
       }
@@ -210,7 +258,12 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
                         
                         {/* User Info */}
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 text-sm truncate">{user.displayName}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-medium text-gray-900 text-sm truncate">{user.displayName}</p>
+                            {user.userTag && (
+                              <span className="text-xs text-gray-500 font-mono flex-shrink-0">#{user.userTag}</span>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-500 truncate">{user.email}</p>
                         </div>
                       </div>

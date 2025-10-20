@@ -108,10 +108,23 @@ router.post('/:invitationId/accept', async (req, res) => {
     // 5. Add user to Firestore group_members and create system message
     try {
       const admin = require('../config/firebaseAdmin');
-      const userRecord = await admin.auth().getUser(userId);
-      const userName = userRecord.displayName || userRecord.email || 'Người dùng mới';
-      
       const db = admin.firestore();
+      
+      // Get user data from Firestore users collection (not Auth)
+      const userDoc = await db.collection('users').doc(userId).get();
+      let userName = 'Người dùng mới';
+      
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        // Use username field (Cookie#2200) if available, otherwise use displayName
+        userName = userData.username || userData.displayName || userData.email || 'Người dùng mới';
+        console.log(`✅ Got username from Firestore: ${userName}`);
+      } else {
+        // Fallback to Auth if user not found in Firestore
+        const userRecord = await admin.auth().getUser(userId);
+        userName = userRecord.displayName || userRecord.email || 'Người dùng mới';
+        console.log(`⚠️ User not in Firestore, using Auth: ${userName}`);
+      }
       
       // Add to Firestore group_members with correct Firestore group ID
       await db.collection('group_members').doc(`${userId}_${firestoreGroupId}`).set({
