@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { executeQuery } = require('../config/db');
 const verifyFirebaseToken = require('../middleware/firebaseAuth');
+const admin = require('../config/firebaseAdmin');
 
 // Apply Firebase auth middleware to all routes
 router.use(verifyFirebaseToken);
@@ -85,25 +86,67 @@ router.post('/:invitationId/accept', async (req, res) => {
       [invitationId]
     );
 
-    // 4. Create system message in Firestore
+    // 4. Get Firestore group ID from mapping
+    const mappingResult = await executeQuery(
+      `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+      [invitation.group_id]
+    );
+
+    const mappings = Array.isArray(mappingResult[0]) ? mappingResult[0] : (Array.isArray(mappingResult) ? mappingResult : [mappingResult]);
+
+    if (mappings.length === 0) {
+      console.error(`❌ No Firestore mapping found for MySQL group ${invitation.group_id}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Group mapping not found'
+      });
+    }
+
+    const firestoreGroupId = mappings[0].firestore_id;
+    console.log(`✅ Found Firestore group ID: ${firestoreGroupId} for MySQL group ${invitation.group_id}`);
+
+    // 5. Add user to Firestore group_members and create system message
     try {
+      const admin = require('../config/firebaseAdmin');
       const userRecord = await admin.auth().getUser(userId);
-      const userName = userRecord.displayName || userRecord.email || 'Someone';
+      const userName = userRecord.displayName || userRecord.email || 'Người dùng mới';
       
-      const groupRef = admin.firestore().collection('groups').doc(invitation.group_id.toString());
+      const db = admin.firestore();
       
-      await groupRef.collection('files').add({
+      // Add to Firestore group_members with correct Firestore group ID
+      await db.collection('group_members').doc(`${userId}_${firestoreGroupId}`).set({
+        groupId: firestoreGroupId,
+        userId: userId,
+        role: 'member',
+        joinedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      // Create system message in messages collection with correct Firestore group ID
+      await db.collection('groups').doc(firestoreGroupId).collection('messages').add({
         type: 'system',
         content: `${userName} đã tham gia nhóm`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        userId: userId
+        userId: userId,
+        userName: userName,
+        isSystemMessage: true
       });
+      
+      // Delete Firestore invitation document (for real-time update)
+      const invitationsSnapshot = await db.collection('group_invitations')
+        .where('invitation_id', '==', parseInt(invitationId))
+        .where('invitee_id', '==', userId)
+        .get();
+      
+      const deletePromises = invitationsSnapshot.docs.map(doc => doc.ref.delete());
+      await Promise.all(deletePromises);
+      
+      console.log(`✅ Created system message for ${userName} joining Firestore group ${firestoreGroupId} (MySQL group ${invitation.group_id})`);
     } catch (firestoreError) {
-      console.warn('Failed to create system message in Firestore:', firestoreError);
+      console.warn('Failed to update Firestore:', firestoreError);
       // Don't fail the request if Firestore update fails
     }
 
-    // 5. Get group info for response
+    // 6. Get group info for response
     const groupResult = await executeQuery(
       `SELECT id, name, description FROM \`groups\` WHERE id = ?`,
       [invitation.group_id]
@@ -153,6 +196,24 @@ router.post('/:invitationId/decline', async (req, res) => {
         success: false,
         error: 'Invitation not found or already processed'
       });
+    }
+
+    // Delete Firestore invitation for real-time update
+    try {
+      const admin = require('../config/firebaseAdmin');
+      const db = admin.firestore();
+      
+      const invitationsSnapshot = await db.collection('group_invitations')
+        .where('invitation_id', '==', parseInt(invitationId))
+        .where('invitee_id', '==', userId)
+        .get();
+      
+      const deletePromises = invitationsSnapshot.docs.map(doc => doc.ref.delete());
+      await Promise.all(deletePromises);
+      
+      console.log(`✅ Deleted Firestore invitation ${invitationId}`);
+    } catch (firestoreError) {
+      console.warn('Failed to delete Firestore invitation:', firestoreError);
     }
 
     res.json({

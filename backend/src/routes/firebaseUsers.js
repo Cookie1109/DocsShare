@@ -185,7 +185,7 @@ router.post('/invite', async (req, res) => {
         continue; // Skip if already invited
       }
 
-      // Create invitation
+      // Create invitation in MySQL
       const insertResult = await executeQuery(
         `INSERT INTO group_invitations (group_id, inviter_id, invitee_id, status) 
          VALUES (?, ?, ?, 'pending')`,
@@ -194,13 +194,32 @@ router.post('/invite', async (req, res) => {
 
       const result = Array.isArray(insertResult[0]) ? insertResult[0] : insertResult;
 
-      invitations.push({
+      const invitationData = {
         id: result.insertId,
         group_id: mysqlGroupId,
         inviter_id: inviterId,
         invitee_id: userId,
         status: 'pending'
-      });
+      };
+
+      invitations.push(invitationData);
+
+      // Also create in Firestore for real-time notifications
+      try {
+        const admin = require('../config/firebaseAdmin');
+        await admin.firestore().collection('group_invitations').add({
+          invitation_id: result.insertId,
+          group_id: mysqlGroupId.toString(),
+          inviter_id: inviterId,
+          invitee_id: userId,
+          status: 'pending',
+          created_at: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`✅ Created Firestore invitation for user ${userId}`);
+      } catch (firestoreError) {
+        console.warn('Failed to create Firestore invitation:', firestoreError);
+        // Don't fail the request
+      }
     }
 
     res.json({

@@ -438,8 +438,6 @@ export const AuthProvider = ({ children }) => {
     logout,
     loginWithGoogle,
     updateProfile,
-    profileIncomplete,
-    completeProfile,
     
     // Groups
     userGroups,

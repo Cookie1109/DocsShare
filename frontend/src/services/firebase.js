@@ -4,7 +4,8 @@ import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
-  updateProfile
+  updateProfile,
+  getAuth
 } from 'firebase/auth';
 import { 
   doc, 
@@ -297,23 +298,37 @@ export const deleteFile = async (filePath) => {
 // Create a new group
 export const createGroup = async (groupName, creatorId, groupPhotoUrl = null) => {
   try {
-    // Create group document
-    const groupRef = await addDoc(collection(db, 'groups'), {
-      name: groupName,
-      creatorId: creatorId,
-      groupPhotoUrl: groupPhotoUrl,
-      createdAt: serverTimestamp()
+    // Get Firebase ID token for authentication
+    const auth = getAuth();
+    const token = await auth.currentUser.getIdToken();
+
+    // Call backend API to create group in both MySQL and Firestore
+    const response = await fetch('http://localhost:5000/api/firebase-groups', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        groupName,
+        groupPhotoUrl
+      })
     });
 
-    // Add creator as admin in group_members
-    await addDoc(collection(db, 'group_members'), {
-      groupId: groupRef.id,
-      userId: creatorId,
-      role: 'admin',
-      joinedAt: serverTimestamp()
-    });
+    const data = await response.json();
 
-    return { success: true, groupId: groupRef.id };
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to create group');
+    }
+
+    console.log('✅ Group created successfully:', data);
+
+    // Return Firestore group ID for compatibility with existing code
+    return { 
+      success: true, 
+      groupId: data.data.firestoreGroupId,
+      mysqlGroupId: data.data.mysqlGroupId
+    };
   } catch (error) {
     console.error('Error creating group:', error);
     return { success: false, error: error.message };

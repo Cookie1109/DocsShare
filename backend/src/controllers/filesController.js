@@ -339,10 +339,10 @@ const getGroupFiles = async (req, res) => {
     console.log(`🗺️ Group mapping result:`, groupMapping);
 
     if (!groupMapping || groupMapping.length === 0) {
-      console.log(`❌ Group mapping not found for: ${firestoreGroupId}`);
-      return res.status(404).json({
-        success: false,
-        message: 'Group not found'
+      console.log(`⚠️ Group mapping not found for: ${firestoreGroupId} - returning empty file list (new group)`);
+      return res.status(200).json({
+        success: true,
+        data: [] // Return empty array for new groups without MySQL mapping yet
       });
     }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Users, FileText, MoreVertical, Hash } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
-const ChatSidebar = () => {
+const ChatSidebar = ({ onGroupSelect }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const groupsListRef = useRef(null);
   const groupRefs = useRef({});
@@ -27,6 +27,11 @@ const ChatSidebar = () => {
     
     // Select group in AuthContext (this will load members)
     await selectGroup(group.id);
+    
+    // Trigger mobile view change
+    if (onGroupSelect) {
+      onGroupSelect();
+    }
   };
 
   const handleImageChange = (e) => {
@@ -67,7 +72,7 @@ const ChatSidebar = () => {
     <div className="h-full flex flex-col bg-white overflow-hidden">
       {/* Search và Create Group - Fixed */}
       <div className="p-4 border-b border-green-100 flex-shrink-0">
-        {/* Search Bar */}
+        {/* Search Bar - Always visible */}
         <div className="relative mb-3">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-gray-400" />
@@ -81,7 +86,7 @@ const ChatSidebar = () => {
           />
         </div>
         
-        {/* Create Group Button */}
+        {/* Create Group Button - Always show full */}
         <button
           onClick={() => setShowCreateGroup(true)}
           className="w-full flex items-center justify-center space-x-2 bg-green-500 hover:bg-green-600 text-white py-2.5 px-4 rounded-xl transition-colors shadow-sm"
@@ -134,7 +139,7 @@ const ChatSidebar = () => {
                     </div>
                   </div>
                   
-                  {/* Group Info */}
+                  {/* Group Info - Always visible */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <h3 className="font-semibold text-gray-900 truncate text-sm">

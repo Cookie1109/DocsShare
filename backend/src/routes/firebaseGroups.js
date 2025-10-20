@@ -8,6 +8,102 @@ const admin = require('../config/firebaseAdmin');
 router.use(verifyFirebaseToken);
 
 /**
+ * POST /api/firebase-groups
+ * Create a new group in both Firestore and MySQL with proper mapping
+ * This ensures both databases stay synchronized
+ */
+router.post('/', async (req, res) => {
+  try {
+    const { groupName, groupPhotoUrl } = req.body;
+    const creatorId = req.user.uid;
+
+    if (!groupName || !groupName.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Group name is required'
+      });
+    }
+
+    console.log('🆕 Creating new group:', groupName, 'by user:', creatorId);
+
+    // Step 1: Create group in MySQL
+    const mysqlResultRaw = await executeQuery(
+      `INSERT INTO \`groups\` (name, description, group_photo_url, creator_id, created_at) 
+       VALUES (?, ?, ?, ?, NOW())`,
+      [groupName.trim(), null, groupPhotoUrl || null, creatorId]
+    );
+
+    // Handle different result formats
+    const mysqlResult = Array.isArray(mysqlResultRaw[0]) ? mysqlResultRaw[0] : mysqlResultRaw;
+    const mysqlGroupId = mysqlResult.insertId;
+    console.log('✅ MySQL group created with ID:', mysqlGroupId);
+
+    // Step 2: Add creator as admin in group_members
+    await executeQuery(
+      `INSERT INTO group_members (group_id, user_id, role, joined_at)
+       VALUES (?, ?, 'admin', NOW())`,
+      [mysqlGroupId, creatorId]
+    );
+    console.log('✅ Creator added as admin in MySQL');
+
+    // Step 3: Create group in Firestore
+    const firestoreGroupRef = await admin.firestore().collection('groups').add({
+      name: groupName.trim(),
+      creatorId: creatorId,
+      groupPhotoUrl: groupPhotoUrl || null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    const firestoreGroupId = firestoreGroupRef.id;
+    console.log('✅ Firestore group created with ID:', firestoreGroupId);
+
+    // Step 4: Add creator as admin in Firestore group_members
+    await admin.firestore().collection('group_members').add({
+      groupId: firestoreGroupId,
+      userId: creatorId,
+      role: 'admin',
+      joinedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    console.log('✅ Creator added as admin in Firestore');
+
+    // Step 5: Create mapping between MySQL and Firestore
+    await executeQuery(
+      `INSERT INTO group_mapping (firestore_id, mysql_id, group_name, creator_id)
+       VALUES (?, ?, ?, ?)`,
+      [firestoreGroupId, mysqlGroupId, groupName.trim(), creatorId]
+    );
+    console.log('✅ Mapping created:', firestoreGroupId, '→', mysqlGroupId);
+
+    // Step 6: Log activity
+    await executeQuery(
+      `INSERT INTO activity_logs (user_id, action_type, target_id, details, created_at)
+       VALUES (?, 'create_group', ?, JSON_OBJECT('group_name', ?), NOW())`,
+      [creatorId, mysqlGroupId.toString(), groupName.trim()]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Group created successfully',
+      data: {
+        firestoreGroupId,
+        mysqlGroupId,
+        name: groupName.trim(),
+        creatorId,
+        groupPhotoUrl: groupPhotoUrl || null
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating group:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
+/**
  * GET /api/firebase-groups/:firestoreGroupId/tags
  * Get tags for a Firebase group (convert to MySQL group ID internally)
  */
@@ -17,44 +113,42 @@ router.get('/:firestoreGroupId/tags', async (req, res) => {
     const userId = req.user.uid;
 
     // 1. Get MySQL group ID from mapping (auto-create if not exists)
-    let [mapping] = await executeQuery(
+    const mappingResult = await executeQuery(
       `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
       [firestoreGroupId]
     );
+
+    // Handle different result formats - extract array of rows
+    const mapping = Array.isArray(mappingResult[0]) ? mappingResult[0] : 
+                    (Array.isArray(mappingResult) ? mappingResult : []);
 
     console.log('🗺️ Group mapping result for tags:', mapping);
     
     let mysqlGroupId;
     
-    if (mapping.length === 0) {
+    if (!mapping || mapping.length === 0) {
       console.log('🆕 Creating new group and mapping for:', firestoreGroupId);
       
       // First create a new group in MySQL
-      const [groupResult] = await executeQuery(
+      const groupResultRaw = await executeQuery(
         `INSERT INTO \`groups\` (name, description, creator_id) VALUES (?, ?, ?)`,
         [`Group ${firestoreGroupId.substring(0, 8)}`, `Auto-created group for Firebase ID: ${firestoreGroupId}`, userId]
       );
       
+      const groupResult = Array.isArray(groupResultRaw[0]) ? groupResultRaw[0] : groupResultRaw;
       mysqlGroupId = groupResult.insertId;
       
       // Then create the mapping
-      const [mappingResult] = await executeQuery(
+      await executeQuery(
         `INSERT INTO group_mapping (firestore_id, mysql_id, group_name) VALUES (?, ?, ?)`,
         [firestoreGroupId, mysqlGroupId, `Group ${firestoreGroupId.substring(0, 8)}`]
       );
       
       console.log('✅ Created group:', mysqlGroupId, 'and mapping:', firestoreGroupId, '→', mysqlGroupId);
     } else {
-      // Handle both array and object formats
-      const mappingItem = Array.isArray(mapping) ? mapping[0] : mapping;
-      if (!mappingItem || !mappingItem.mysql_id) {
-        console.error('❌ Invalid mapping result:', mapping);
-        return res.status(500).json({
-          success: false,
-          error: 'Invalid group mapping data'
-        });
-      }
-      mysqlGroupId = mappingItem.mysql_id;
+      // Mapping exists - get MySQL group ID
+      mysqlGroupId = mapping[0].mysql_id;
+      console.log('✅ Found existing mapping:', firestoreGroupId, '→', mysqlGroupId);
     }
 
     // 2. Skip member check for now (will implement later)
@@ -117,44 +211,42 @@ router.post('/:firestoreGroupId/tags', async (req, res) => {
     }
 
     // 1. Get MySQL group ID from mapping (auto-create if not exists)
-    let [mapping] = await executeQuery(
+    const mappingResult = await executeQuery(
       `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
       [firestoreGroupId]
     );
+
+    // Handle different result formats - extract array of rows
+    const mapping = Array.isArray(mappingResult[0]) ? mappingResult[0] : 
+                    (Array.isArray(mappingResult) ? mappingResult : []);
 
     console.log('🗺️ Group mapping result for creating tag:', mapping);
     
     let mysqlGroupId;
     
-    if (mapping.length === 0) {
+    if (!mapping || mapping.length === 0) {
       console.log('🆕 Creating new group and mapping for tag creation:', firestoreGroupId);
       
       // First create a new group in MySQL
-      const [groupResult] = await executeQuery(
+      const groupResultRaw = await executeQuery(
         `INSERT INTO \`groups\` (name, description, creator_id) VALUES (?, ?, ?)`,
         [`Group ${firestoreGroupId.substring(0, 8)}`, `Auto-created group for Firebase ID: ${firestoreGroupId}`, userId]
       );
       
+      const groupResult = Array.isArray(groupResultRaw[0]) ? groupResultRaw[0] : groupResultRaw;
       mysqlGroupId = groupResult.insertId;
       
       // Then create the mapping
-      const [mappingResult] = await executeQuery(
+      await executeQuery(
         `INSERT INTO group_mapping (firestore_id, mysql_id, group_name) VALUES (?, ?, ?)`,
         [firestoreGroupId, mysqlGroupId, `Group ${firestoreGroupId.substring(0, 8)}`]
       );
       
       console.log('✅ Created group:', mysqlGroupId, 'and mapping for tags:', firestoreGroupId, '→', mysqlGroupId);
     } else {
-      // Handle both array and object formats  
-      const mappingItem = Array.isArray(mapping) ? mapping[0] : mapping;
-      if (!mappingItem || !mappingItem.mysql_id) {
-        console.error('❌ Invalid mapping result:', mapping);
-        return res.status(500).json({
-          success: false,
-          error: 'Invalid group mapping data'
-        });
-      }
-      mysqlGroupId = mappingItem.mysql_id;
+      // Mapping exists - get MySQL group ID
+      mysqlGroupId = mapping[0].mysql_id;
+      console.log('✅ Found existing mapping for tag creation:', firestoreGroupId, '→', mysqlGroupId);
     }
 
     // 2. Skip member check for now (will implement later)
@@ -340,17 +432,21 @@ router.get('/:firestoreGroupId/debug', async (req, res) => {
   try {
     const { firestoreGroupId } = req.params;
     
-    const [mapping] = await executeQuery(
+    const mappingResult = await executeQuery(
       `SELECT * FROM group_mapping WHERE firestore_id = ?`,
       [firestoreGroupId]
     );
+    
+    // Handle different result formats
+    const mapping = Array.isArray(mappingResult[0]) ? mappingResult[0] : 
+                    (Array.isArray(mappingResult) ? mappingResult : []);
     
     res.json({
       success: true,
       firestoreGroupId,
       mapping,
-      mappingLength: mapping.length,
-      firstResult: mapping[0] || null
+      mappingLength: mapping ? mapping.length : 0,
+      firstResult: mapping && mapping[0] ? mapping[0] : null
     });
   } catch (error) {
     res.status(500).json({

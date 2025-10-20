@@ -287,25 +287,45 @@ const GroupSidebar = ({ group, onClose }) => {
   };
 
   return (
-    <div 
-      className="w-96 bg-white h-full shadow-2xl flex flex-col border-l border-gray-200"
-      style={{
-        transform: isAnimatingIn ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 0.3s ease-in-out',
-        opacity: isAnimatingIn ? 1 : 0
-      }}
-    >
+    <>
+      {/* Overlay for mobile/tablet */}
+      <div 
+        className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+        onClick={onClose}
+        style={{
+          opacity: isAnimatingIn ? 1 : 0,
+          transition: 'opacity 0.3s ease-in-out',
+          pointerEvents: isAnimatingIn ? 'auto' : 'none'
+        }}
+      />
+      
+      {/* Sidebar */}
+      <div 
+        className="fixed lg:relative right-0 top-0 w-full sm:w-96 lg:w-80 xl:w-96 bg-white h-full shadow-2xl flex flex-col border-l border-gray-200 z-50"
+        style={{
+          transform: isAnimatingIn ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.3s ease-in-out',
+          opacity: isAnimatingIn ? 1 : 0
+        }}
+      >
       {/* Header */}
       <div className="bg-emerald-500 text-white flex-shrink-0">
-        <div className="flex items-center justify-between p-4 border-b border-emerald-400">
-          <h3 className="text-lg font-semibold">Thông tin nhóm</h3>
+        <div className="flex items-center justify-between p-3 sm:p-4 border-b border-emerald-400">
+          <h3 className="text-base sm:text-lg font-semibold">Thông tin nhóm</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-emerald-600 rounded-full transition-colors"
+            title="Đóng"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
         
         {/* Group Info */}
-        <div className="p-4">
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg">
+        <div className="p-3 sm:p-4">
+          <div className="flex items-center space-x-3 sm:space-x-4">
+            <div className="relative flex-shrink-0">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 bg-orange-500 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg">
                 {currentGroup?.groupPhotoUrl ? (
                   <img src={currentGroup.groupPhotoUrl} alt={currentGroup.name} className="w-full h-full object-cover" />
                 ) : (
@@ -357,18 +377,19 @@ const GroupSidebar = ({ group, onClose }) => {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col bg-gray-50">
         {activeTab === 'members' && (
           <div className="flex-1 flex flex-col">
-            <div className="p-4 border-b border-gray-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Thành viên ({groupMembers?.length || 0})</h3>
+            <div className="p-3 sm:p-4 border-b border-gray-200 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">Thành viên ({groupMembers?.length || 0})</h3>
                 <button
                   onClick={() => setShowInviteModal(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-sm"
+                  className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-xs sm:text-sm whitespace-nowrap flex-shrink-0"
                 >
-                  <UserPlus className="h-4 w-4" />
-                  Mời thành viên
+                  <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden sm:inline">Mời thành viên</span>
+                  <span className="sm:hidden">Mời</span>
                 </button>
               </div>
               <div className="relative">
@@ -382,11 +403,11 @@ const GroupSidebar = ({ group, onClose }) => {
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              <div className="p-4 space-y-3">
+              <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                 {groupMembers?.map((member) => (
-                  <div key={member.membershipId} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center space-x-3 flex-1 min-w-0">
-                      <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center overflow-hidden">
+                  <div key={member.membershipId} className="flex items-center justify-between p-2 sm:p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors gap-2">
+                    <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
                         {member.user.avatar ? (
                           <img src={member.user.avatar} alt={member.user.displayName} className="w-full h-full object-cover" />
                         ) : (
@@ -445,9 +466,9 @@ const GroupSidebar = ({ group, onClose }) => {
 
         {activeTab === 'files' && (
           <div className="flex-1 flex flex-col">
-            <div className="p-4 border-b border-gray-200 space-y-3">
+            <div className="p-3 sm:p-4 border-b border-gray-200 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Files ({groupFiles.length})</h3>
+                <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Files ({groupFiles.length})</h3>
               </div>
               
               {/* Search & Filter */}
@@ -557,9 +578,9 @@ const GroupSidebar = ({ group, onClose }) => {
 
         {activeTab === 'settings' && (
           <div className="flex-1 overflow-y-auto">
-            <div className="p-4 space-y-4">
+            <div className="p-3 sm:p-4 space-y-3 sm:space-y-4">
               <div className="space-y-3">
-                <h5 className="font-semibold text-gray-800 flex items-center gap-2">
+                <h5 className="font-semibold text-gray-800 flex items-center gap-2 text-sm sm:text-base">
                   <Settings className="h-4 w-4 text-emerald-500" />
                   Cài đặt chung
                 </h5>
@@ -707,7 +728,8 @@ const GroupSidebar = ({ group, onClose }) => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 

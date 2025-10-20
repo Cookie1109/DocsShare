@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Check, X, Users, Loader, Clock } from 'lucide-react';
 import { auth } from '../../config/firebase';
+import { getFirestore, collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 
 const InvitationNotifications = () => {
   const [invitations, setInvitations] = useState([]);
@@ -8,7 +9,7 @@ const InvitationNotifications = () => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [processingId, setProcessingId] = useState(null);
 
-  // Load pending invitations
+  // Load pending invitations from MySQL
   const loadInvitations = async () => {
     try {
       const token = await auth.currentUser.getIdToken();
@@ -31,11 +32,41 @@ const InvitationNotifications = () => {
   };
 
   useEffect(() => {
+    if (!auth.currentUser) return;
+
+    // Initial load from MySQL
     loadInvitations();
     
-    // Poll every 30 seconds for new invitations
-    const interval = setInterval(loadInvitations, 30000);
-    return () => clearInterval(interval);
+    // Set up real-time listener for Firestore (for instant notifications)
+    const db = getFirestore();
+    const invitationsRef = collection(db, 'group_invitations');
+    const q = query(
+      invitationsRef, 
+      where('invitee_id', '==', auth.currentUser.uid),
+      where('status', '==', 'pending')
+      // Removed orderBy to avoid needing Firestore index
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          console.log('🔔 New invitation received!', change.doc.data());
+          // Reload from MySQL to get complete data with group info
+          loadInvitations();
+        }
+        if (change.type === 'removed') {
+          console.log('✅ Invitation processed', change.doc.id);
+          loadInvitations();
+        }
+      });
+    }, (error) => {
+      console.warn('Firestore listener error:', error);
+      // Fallback to polling if Firestore fails
+      const interval = setInterval(loadInvitations, 30000);
+      return () => clearInterval(interval);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleAccept = async (invitationId) => {
@@ -56,14 +87,30 @@ const InvitationNotifications = () => {
 
       if (!response.ok) throw new Error('Failed to accept invitation');
 
-      // Remove from list
+      const result = await response.json();
+      
+      // Remove from list immediately
       setInvitations(prev => prev.filter(inv => inv.id !== invitationId));
       
-      // Show success notification
-      alert('Đã tham gia nhóm thành công!');
+      // Show success with group name
+      const groupName = result.data?.group?.name || 'nhóm';
       
-      // Reload page to update group list
-      window.location.reload();
+      // Create a better notification
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-emerald-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+      notification.innerHTML = `
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <span>Đã tham gia nhóm "${groupName}"</span>
+      `;
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.remove();
+        // Reload to show new group in sidebar
+        window.location.reload();
+      }, 2000);
       
     } catch (err) {
       console.error('Accept invitation error:', err);

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import filesService from '../services/filesService';
 import { getAuth } from 'firebase/auth';
+import { getFirestore, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 // Custom hook for managing group files
 export const useGroupFiles = (selectedGroup) => {
@@ -193,6 +194,58 @@ export const useGroupFiles = (selectedGroup) => {
       setLoading(false);
     }
   }, [selectedGroup, groupFiles]);
+
+  // Real-time listener for files
+  useEffect(() => {
+    if (!selectedGroup) {
+      setGroupFiles(prev => ({ ...prev, [selectedGroup]: [] }));
+      return;
+    }
+
+    console.log(`🔥 Setting up real-time listener for group: ${selectedGroup}`);
+    setLoading(true);
+
+    const db = getFirestore();
+    const filesRef = collection(db, 'groups', selectedGroup.toString(), 'files');
+    const q = query(filesRef, orderBy('uploadedAt', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const loadedFiles = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: data.id || doc.id,
+          name: data.name,
+          size: `${(data.size / 1024 / 1024).toFixed(1)} MB`,
+          type: data.name.split('.').pop() || 'unknown',
+          uploadedBy: data.uploaderName || data.uploaderEmail?.split('@')[0],
+          uploadedAt: data.uploadedAt?.toDate?.() || new Date(),
+          downloads: data.downloadCount || 0,
+          views: 0,
+          isOwn: data.uploaderId === getCurrentUserId(),
+          tags: data.tagIds || [],
+          url: data.url
+        };
+      });
+
+      console.log(`✅ Real-time: Loaded ${loadedFiles.length} files for group ${selectedGroup}`);
+      
+      setGroupFiles(prev => ({
+        ...prev,
+        [selectedGroup]: loadedFiles
+      }));
+      
+      setLoading(false);
+    }, (error) => {
+      console.error('❌ Real-time listener error:', error);
+      setError(error.message);
+      setLoading(false);
+    });
+
+    return () => {
+      console.log(`🔥 Cleaning up real-time listener for group: ${selectedGroup}`);
+      unsubscribe();
+    };
+  }, [selectedGroup]);
 
   return {
     files: getCurrentGroupFiles(),

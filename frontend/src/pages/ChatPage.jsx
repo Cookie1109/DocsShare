@@ -11,7 +11,12 @@ const ChatPage = () => {
   const [showUserProfileModal, setShowUserProfileModal] = useState(false);
   const [userAvatar, setUserAvatar] = useState(null);
   const [userName, setUserName] = useState('');
+  const [userTag, setUserTag] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [showMobileChat, setShowMobileChat] = useState(false); // Mobile view state
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const fileInputRef = useRef(null);
   
   // Use AuthContext - consolidate all useAuth calls
@@ -34,9 +39,20 @@ const ChatPage = () => {
   // Initialize user data when modal opens
   useEffect(() => {
     if (showUserProfileModal) {
-      setUserName(user?.username || user?.name || '');
+      const fullName = user?.username || user?.name || '';
+      // Split name and tag if exists
+      if (fullName.includes('#')) {
+        const [name, tag] = fullName.split('#');
+        setUserName(name);
+        setUserTag(tag);
+      } else {
+        setUserName(fullName);
+        setUserTag('');
+      }
       setUserAvatar(user?.avatar || null);
       setIsEditing(false);
+      setSaveError('');
+      setSaveSuccess(false);
     }
   }, [showUserProfileModal, user]);
 
@@ -44,6 +60,19 @@ const ChatPage = () => {
   const handleAvatarChange = (event) => {
     const file = event.target.files[0];
     if (file) {
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setSaveError('Ảnh không được vượt quá 5MB');
+        return;
+      }
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setSaveError('Vui lòng chọn file ảnh');
+        return;
+      }
+      
+      setSaveError('');
       const reader = new FileReader();
       reader.onload = (e) => {
         setUserAvatar(e.target.result);
@@ -52,11 +81,44 @@ const ChatPage = () => {
     }
   };
 
+  // Handle remove avatar
+  const handleRemoveAvatar = () => {
+    setUserAvatar(null);
+  };
+
   // Handle save user info
   const handleSaveUserInfo = async () => {
+    // Validation
+    if (!userName.trim()) {
+      setSaveError('Tên hiển thị không được để trống');
+      return;
+    }
+
+    if (userName.trim().length < 2) {
+      setSaveError('Tên hiển thị phải có ít nhất 2 ký tự');
+      return;
+    }
+
+    if (userName.trim().length > 50) {
+      setSaveError('Tên hiển thị không được vượt quá 50 ký tự');
+      return;
+    }
+
+    if (userTag && userTag.length < 4) {
+      setSaveError('Tag phải có ít nhất 4 chữ số');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError('');
+    setSaveSuccess(false);
+
     try {
+      // Combine name and tag
+      const fullName = userTag ? `${userName.trim()}#${userTag}` : userName.trim();
+      
       const updatedData = {
-        name: userName,
+        name: fullName,
         avatar: userAvatar
       };
       
@@ -65,15 +127,41 @@ const ChatPage = () => {
       
       if (result.success) {
         console.log('User updated successfully:', updatedData);
-        // Close modal
-        setShowUserProfileModal(false);
-        setIsEditing(false);
+        setSaveSuccess(true);
+        
+        // Close modal after short delay
+        setTimeout(() => {
+          setShowUserProfileModal(false);
+          setIsEditing(false);
+          setSaveSuccess(false);
+        }, 1500);
       } else {
-        console.error('Failed to update user:', result.error);
+        setSaveError(result.error || 'Không thể cập nhật thông tin');
       }
     } catch (error) {
       console.error('Error updating user:', error);
+      setSaveError('Đã xảy ra lỗi. Vui lòng thử lại');
+    } finally {
+      setIsSaving(false);
     }
+  };
+
+  // Handle cancel
+  const handleCancelEdit = () => {
+    setShowUserProfileModal(false);
+    const fullName = user?.username || user?.name || '';
+    if (fullName.includes('#')) {
+      const [name, tag] = fullName.split('#');
+      setUserName(name);
+      setUserTag(tag);
+    } else {
+      setUserName(fullName);
+      setUserTag('');
+    }
+    setUserAvatar(user?.avatar || null);
+    setIsEditing(false);
+    setSaveError('');
+    setSaveSuccess(false);
   };
 
   // Show skeleton loading while user data is loading
@@ -157,28 +245,34 @@ const ChatPage = () => {
 
   return (
     <div className="h-screen flex bg-green-50 overflow-hidden">
-      {/* Sidebar với header DocsShare */}
-      <div className="w-80 bg-white shadow-sm border-r border-green-100 flex flex-col">
+      {/* Sidebar - Full screen on mobile when no chat selected, hidden when chat open */}
+      <div className={`
+        ${showMobileChat ? 'hidden sm:flex' : 'flex'}
+        w-full sm:w-80 bg-white shadow-sm border-r border-green-100 flex-col transition-all duration-300
+      `}>
         {/* Header với Logo DocsShare - Fixed */}
-        <div className="bg-white border-b border-gray-200 p-6">
+        <div className="bg-white border-b border-gray-200 p-4 sm:p-5">
           <div className="flex items-center justify-between">
             {/* Logo và tên */}
-            <div className="flex items-center flex-1">
-              <div className="mr-3">
+            <div className="flex items-center flex-1 min-w-0">
+              <div className="flex-shrink-0">
                 <img 
                   src={Logo} 
                   alt="DocsShare Logo" 
                   className="w-10 h-10 rounded-lg"
                 />
               </div>
-              <div>
+              {/* Text - Always visible now */}
+              <div className="ml-3">
                 <h1 className="text-lg font-semibold text-gray-800">DocsShare</h1>
                 <p className="text-gray-600 text-sm">Chia sẻ tài liệu</p>
               </div>
             </div>
             
             {/* Notification Bell */}
-            <InvitationNotifications />
+            <div>
+              <InvitationNotifications />
+            </div>
 
           </div>
         </div>
@@ -187,6 +281,7 @@ const ChatPage = () => {
         <div className="flex-1 overflow-hidden">
           <ChatSidebar 
             user={user}
+            onGroupSelect={() => setShowMobileChat(true)}
           />
         </div>
 
@@ -197,7 +292,7 @@ const ChatPage = () => {
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="w-full flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              <div className="relative">
+              <div className="relative flex-shrink-0">
                 <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center border border-emerald-200 overflow-hidden">
                   {user?.avatar ? (
                     <img 
@@ -213,8 +308,9 @@ const ChatPage = () => {
                 </div>
                 <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-white"></div>
               </div>
+              {/* User info - Always visible now */}
               <div className="flex-1 text-left">
-                <p className="font-medium text-gray-800 text-sm">{user?.username || user?.name || 'Người dùng'}</p>
+                <p className="font-medium text-gray-800 text-sm truncate">{user?.username || user?.name || 'Người dùng'}</p>
                 <p className="text-gray-500 text-xs">Đang hoạt động</p>
               </div>
               <Settings className="w-4 h-4 text-gray-400" />
@@ -251,34 +347,39 @@ const ChatPage = () => {
         </div>
       </div>
       
-      {/* Main Chat Area - Fixed height */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-white">
+      {/* Main Chat Area - Full screen on mobile when chat selected, normal on desktop */}
+      <div className={`
+        ${showMobileChat ? 'flex' : 'hidden sm:flex'}
+        flex-1 flex-col overflow-hidden bg-white
+      `}>
         <ChatArea 
           user={user}
+          onBackClick={() => setShowMobileChat(false)}
+          isMobileView={showMobileChat}
         />
       </div>
 
       {/* User Profile Modal */}
       {showUserProfileModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-xl max-w-lg w-full overflow-hidden">
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-800">Thông tin người dùng</h2>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <h2 className="text-xl font-semibold text-gray-800">Thông tin người dùng</h2>
               <button
                 onClick={() => setShowUserProfileModal(false)}
-                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
               >
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
 
             {/* Modal Content */}
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-5">
               {/* Avatar Section */}
-              <div className="flex flex-col items-center space-y-4">
-                <div className="relative">
-                  <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center border-2 border-emerald-200 overflow-hidden">
+              <div className="flex flex-col items-center space-y-3">
+                <div className="relative group">
+                  <div className="w-24 h-24 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center overflow-hidden ring-4 ring-green-50">
                     {userAvatar ? (
                       <img 
                         src={userAvatar} 
@@ -286,16 +387,17 @@ const ChatPage = () => {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <span className="text-emerald-700 font-semibold text-2xl">
+                      <span className="text-white font-bold text-3xl">
                         {userName?.charAt(0).toUpperCase() || (user?.username || user?.name)?.charAt(0).toUpperCase() || 'U'}
                       </span>
                     )}
                   </div>
                   <button 
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute -bottom-1 -right-1 w-7 h-7 bg-emerald-500 rounded-full flex items-center justify-center text-white hover:bg-emerald-600 transition-colors"
+                    disabled={isSaving}
+                    className="absolute bottom-0 right-0 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white hover:bg-green-600 transition-all shadow-lg hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Camera className="w-3 h-3" />
+                    <Camera className="w-4 h-4" />
                   </button>
                   {/* Hidden file input */}
                   <input
@@ -304,16 +406,20 @@ const ChatPage = () => {
                     accept="image/*"
                     onChange={handleAvatarChange}
                     className="hidden"
+                    disabled={isSaving}
                   />
+                  {/* Online indicator */}
+                  <div className="absolute top-0 right-0 w-5 h-5 bg-green-400 rounded-full border-4 border-white"></div>
                 </div>
-                <div className="text-center">
-                  <p className="text-sm text-gray-500">Click vào biểu tượng camera để thay đổi ảnh đại diện</p>
+                <div className="text-center space-y-1">
+                  <p className="text-xs text-gray-500">Click vào biểu tượng camera để thay đổi ảnh đại diện</p>
                   {userAvatar && userAvatar !== user?.avatar && (
                     <button
-                      onClick={() => setUserAvatar(null)}
-                      className="text-xs text-red-500 hover:text-red-700 mt-1"
+                      onClick={handleRemoveAvatar}
+                      disabled={isSaving}
+                      className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-50"
                     >
-                      Xóa ảnh
+                      Xóa ảnh đã chọn
                     </button>
                   )}
                 </div>
@@ -321,6 +427,7 @@ const ChatPage = () => {
 
               {/* User Info Form */}
               <div className="space-y-4">
+                {/* Name Field */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Tên hiển thị
@@ -329,22 +436,51 @@ const ChatPage = () => {
                     <input
                       type="text"
                       value={userName}
-                      onChange={(e) => setUserName(e.target.value)}
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                      onChange={(e) => {
+                        setUserName(e.target.value);
+                        setSaveError('');
+                      }}
+                      disabled={isSaving}
+                      maxLength={50}
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       placeholder="Nhập tên của bạn"
                     />
-                    <button
-                      onClick={() => setIsEditing(!isEditing)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-100 transition-colors"
-                    >
-                      <Edit2 className="w-4 h-4 text-gray-400" />
-                    </button>
                   </div>
-                  {isEditing && (
-                    <p className="text-xs text-emerald-600 mt-1">Đang chỉnh sửa tên hiển thị</p>
-                  )}
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    {userName.length}/50 ký tự
+                  </p>
                 </div>
 
+                {/* Tag Field */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tag
+                  </label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
+                      #
+                    </div>
+                    <input
+                      type="text"
+                      value={userTag}
+                      onChange={(e) => {
+                        // Only allow numbers
+                        const value = e.target.value.replace(/[^0-9]/g, '');
+                        setUserTag(value);
+                        setSaveError('');
+                      }}
+                      disabled={isSaving}
+                      maxLength={5}
+                      className="w-full pl-8 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      placeholder="12345"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    Tag giúp người khác tìm bạn dễ dàng hơn (4-5 chữ số)
+                  </p>
+                </div>
+
+                {/* Email Field */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Email
@@ -352,42 +488,61 @@ const ChatPage = () => {
                   <input
                     type="email"
                     defaultValue={user?.email || ''}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-500 cursor-not-allowed"
                     placeholder="email@example.com"
                     disabled
                   />
-                  <p className="text-xs text-gray-500 mt-1">Email không thể thay đổi</p>
+                  <p className="text-xs text-gray-500 mt-1.5">Email không thể thay đổi</p>
                 </div>
+
+                {/* Error Message */}
+                {saveError && (
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm flex items-start gap-2">
+                    <X className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    <span>{saveError}</span>
+                  </div>
+                )}
+
+                {/* Success Message */}
+                {saveSuccess && (
+                  <div className="p-3 bg-green-50 border border-green-100 rounded-xl text-green-700 text-sm flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <span>Cập nhật thông tin thành công!</span>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center justify-between p-6 border-t border-gray-200">
-              <div className="text-left">
-                {(userName !== (user?.username || user?.name) || userAvatar !== user?.avatar) && (
-                  <p className="text-xs text-amber-600">Có thay đổi chưa được lưu</p>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
+              <button
+                onClick={handleCancelEdit}
+                disabled={isSaving}
+                className="px-5 py-2 text-gray-600 font-medium rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSaveUserInfo}
+                disabled={!userName.trim() || isSaving}
+                className="px-5 py-2 text-white font-medium bg-green-500 rounded-xl hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Đang lưu...</span>
+                  </>
+                ) : (
+                  <span>Lưu thay đổi</span>
                 )}
-              </div>
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => {
-                    setShowUserProfileModal(false);
-                    setUserName(user?.username || user?.name || '');
-                    setUserAvatar(user?.avatar || null);
-                    setIsEditing(false);
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={handleSaveUserInfo}
-                  disabled={!userName.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                >
-                  Lưu thay đổi
-                </button>
-              </div>
+              </button>
             </div>
           </div>
         </div>

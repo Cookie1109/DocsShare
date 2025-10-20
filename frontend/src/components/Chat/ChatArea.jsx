@@ -26,7 +26,8 @@ import {
   Trash2,
   Check,
   Square,
-  CheckSquare
+  CheckSquare,
+  ArrowLeft
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAuth } from 'firebase/auth';
@@ -34,8 +35,9 @@ import TagSelector from './TagSelector';
 import GroupSidebar from './GroupSidebar';
 import { useGroupFiles } from '../../hooks/useGroupFiles';
 import tagsService from '../../services/tagsService';
+import { getFirestore, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
-const ChatArea = ({ user }) => {
+const ChatArea = ({ user, onBackClick, isMobileView }) => {
   // Get selectedGroup from AuthContext
   const { selectedGroup, userGroups } = useAuth();
   
@@ -44,6 +46,10 @@ const ChatArea = ({ user }) => {
   
   // Use custom hook for file management
   const { files, loading: filesLoading, error: filesError, uploadFiles, deleteFile, refreshFiles, setError } = useGroupFiles(selectedGroup);
+  
+  // Chat messages state
+  const [messages, setMessages] = useState([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   
   // Tag management 
   const [availableTags, setAvailableTags] = useState([]);
@@ -74,9 +80,39 @@ const ChatArea = ({ user }) => {
     loadTags();
   }, [loadTags]);
 
-  // Auto scroll to bottom when files are loaded (show latest files first)
+  // Load chat messages (real-time)
   useEffect(() => {
-    if (files && files.length > 0 && chatAreaRef.current && !filesLoading) {
+    if (!selectedGroup) {
+      setMessages([]);
+      return;
+    }
+
+    setLoadingMessages(true);
+    const db = getFirestore();
+    const messagesRef = collection(db, 'groups', selectedGroup.toString(), 'messages');
+    const q = query(messagesRef, orderBy('createdAt', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const loadedMessages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate()
+      }));
+      
+      console.log('💬 Loaded messages:', loadedMessages.length);
+      setMessages(loadedMessages);
+      setLoadingMessages(false);
+    }, (error) => {
+      console.error('Error loading messages:', error);
+      setLoadingMessages(false);
+    });
+
+    return () => unsubscribe();
+  }, [selectedGroup]);
+
+  // Auto scroll to bottom when files or messages change
+  useEffect(() => {
+    if (chatAreaRef.current && !filesLoading && !loadingMessages) {
       // Use setTimeout to ensure DOM is updated
       setTimeout(() => {
         if (chatAreaRef.current) {
@@ -84,11 +120,11 @@ const ChatArea = ({ user }) => {
             top: chatAreaRef.current.scrollHeight,
             behavior: 'instant' // Use instant for initial load
           });
-          console.log('📍 Auto-scrolled to bottom - showing latest files');
+          console.log('📍 Auto-scrolled to bottom');
         }
       }, 100);
     }
-  }, [files, filesLoading, selectedGroup]); // Trigger when files change or group changes
+  }, [files, messages, filesLoading, loadingMessages, selectedGroup]);
 
   // Old static documents for fallback (removing in next step)
   const [groupDocuments, setGroupDocuments] = useState({
@@ -198,9 +234,29 @@ const ChatArea = ({ user }) => {
       return new Date(a.uploadedAt) - new Date(b.uploadedAt);
     });
     
-
-    
     return sortedDocs;
+  };
+
+  // Merge messages and files, sorted by time
+  const getCombinedChatItems = () => {
+    const fileItems = (files || []).map(file => ({
+      ...file,
+      itemType: 'file',
+      timestamp: new Date(file.uploadedAt)
+    }));
+
+    const messageItems = (messages || []).map(msg => ({
+      ...msg,
+      itemType: 'message',
+      timestamp: msg.createdAt || new Date()
+    }));
+
+    // Combine and sort by timestamp
+    const combined = [...fileItems, ...messageItems].sort((a, b) => {
+      return a.timestamp - b.timestamp;
+    });
+
+    return combined;
   };
 
 
@@ -652,17 +708,31 @@ const ChatArea = ({ user }) => {
 
   return (
     <div className="h-full flex bg-green-50 overflow-hidden relative">
-      <div className={`${sidebarMode !== 'none' ? 'w-[calc(100%-384px)]' : 'w-full'} flex flex-col min-w-0 transition-all duration-300 ease-in-out`}>
+      <div className={`${
+        sidebarMode !== 'none' 
+          ? 'w-full lg:w-[calc(100%-20rem)] xl:w-[calc(100%-24rem)]' 
+          : 'w-full'
+      } flex flex-col min-w-0 transition-all duration-300 ease-in-out`}>
       {/* Header - Professional Style */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm flex-shrink-0">
-        <div className="flex items-center justify-between">
-          {/* Left: Group Info */}
-          <div className="flex items-center space-x-3 min-w-0 flex-1">
-            <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center border-2 border-white overflow-hidden">
+      <div className="bg-white border-b border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4 shadow-sm flex-shrink-0">
+        <div className="flex items-center justify-between gap-2 sm:gap-4">
+          {/* Left: Back button (mobile) + Group Info */}
+          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+            {/* Back button - Only on mobile (<640px) */}
+            {isMobileView && onBackClick && (
+              <button
+                onClick={onBackClick}
+                className="sm:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+            )}
+            
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-orange-500 rounded-full flex items-center justify-center border-2 border-white overflow-hidden flex-shrink-0">
               {currentGroup?.groupPhotoUrl ? (
                 <img src={currentGroup.groupPhotoUrl} alt={currentGroup.name} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-white font-semibold text-sm">
+                <span className="text-white font-semibold text-xs sm:text-sm">
                   {currentGroup?.name?.charAt(0).toUpperCase() || 'G'}
                 </span>
               )}
@@ -710,7 +780,7 @@ const ChatArea = ({ user }) => {
                     setFilteredDocuments([]);
                   }, 200);
                 }}
-                className="w-96 pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-full focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none bg-gray-50 hover:bg-gray-100 focus:bg-white focus:text-gray-800 transition-all placeholder:text-gray-400 text-gray-700"
+                className="w-32 sm:w-48 md:w-64 lg:w-96 pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-full focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none bg-gray-50 hover:bg-gray-100 focus:bg-white focus:text-gray-800 transition-all placeholder:text-gray-400 text-gray-700"
               />
               
               {searchQuery && (
@@ -830,7 +900,7 @@ const ChatArea = ({ user }) => {
       <div 
         ref={chatAreaRef}
         data-chat-area
-        className="flex-1 overflow-y-auto p-4 space-y-4"
+        className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6 space-y-3 sm:space-y-4"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -873,7 +943,7 @@ const ChatArea = ({ user }) => {
               </button>
             </div>
           </div>
-        ) : getCurrentGroupDocuments().length === 0 ? (
+        ) : getCombinedChatItems().length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-md mx-auto p-8">
               <div className="w-24 h-24 bg-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-6 overflow-hidden shadow-lg">
@@ -909,27 +979,39 @@ const ChatArea = ({ user }) => {
             </div>
           </div>
         ) : (
-          /* File Messages and System Messages */
-          getCurrentGroupDocuments().map((doc) => (
-            // Check if it's a system message
-            doc.type === 'system' ? (
-              <div key={doc.id} className="flex justify-center my-4">
-                <div className="bg-gray-100 px-4 py-2 rounded-full text-sm text-gray-600 flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  {doc.content || doc.name}
+          /* Combined Chat Items: Messages and Files */
+          getCombinedChatItems().map((item) => {
+            // System Message (center aligned)
+            if (item.itemType === 'message' && (item.type === 'system' || item.isSystemMessage)) {
+              return (
+                <div key={item.id} className="flex justify-center my-4">
+                  <div className="bg-gray-100 px-4 py-2 rounded-full text-sm text-gray-600 flex items-center gap-2 shadow-sm">
+                    <Users className="h-4 w-4" />
+                    {item.content}
+                  </div>
                 </div>
-              </div>
-            ) : (
-            <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3 group relative">
-              {/* Message with Avatar */}
-              <div className={`flex items-end gap-2 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+              );
+            }
+
+            // Regular text message (future feature - for now just skip)
+            if (item.itemType === 'message' && item.type !== 'system') {
+              // TODO: Implement regular text messages later
+              return null;
+            }
+
+            // File message (existing code)
+            const doc = item;
+            return (
+              <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3 group relative">
+                {/* Message with Avatar */}
+                <div className={`flex items-end gap-2 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
                 {/* Avatar */}
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
                   {doc.isOwn ? 'M' : doc.uploadedBy?.charAt(0) || 'U'}
                 </div>
                 
                 {/* Message Content */}
-                <div className="flex flex-col max-w-md">
+                <div className="flex flex-col max-w-[90%] sm:max-w-md md:max-w-lg lg:max-w-xl">
                   {/* Sender name (for others' files) */}
                   {!doc.isOwn && (
                     <p className="text-xs text-gray-500 mb-1 ml-2">{doc.uploadedBy}</p>
@@ -1066,8 +1148,8 @@ const ChatArea = ({ user }) => {
                 )}
               </div>
             </div>
-            ) // Close ternary for file message
-          ))
+            ); // Close file message return
+          })
         )}
 
 
@@ -1122,18 +1204,19 @@ const ChatArea = ({ user }) => {
       )}
 
       {/* Upload Button - Fixed at bottom */}
-      <div className="p-4 bg-white border-t border-green-100 flex-shrink-0">
-        <div className="flex items-center space-x-3">
+      <div className="p-3 sm:p-4 bg-white border-t border-green-100 flex-shrink-0">
+        <div className="flex items-center space-x-2 sm:space-x-3">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex-shrink-0 w-10 h-10 bg-emerald-500 hover:bg-emerald-600 rounded-full flex items-center justify-center transition-colors group"
+            className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 bg-emerald-500 hover:bg-emerald-600 rounded-full flex items-center justify-center transition-colors group shadow-lg hover:shadow-xl"
             title="Tải lên file"
           >
-            <Paperclip className="h-5 w-5 text-white group-hover:scale-110 transition-transform" />
+            <Paperclip className="h-5 w-5 sm:h-6 sm:w-6 text-white group-hover:scale-110 transition-transform" />
           </button>
           
-          <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 text-gray-500 text-sm">
-            Kéo thả file hoặc nhấn nút để tải lên...
+          <div className="flex-1 bg-gray-100 rounded-full px-3 sm:px-4 py-2 sm:py-2.5 text-gray-500 text-xs sm:text-sm truncate">
+            <span className="hidden sm:inline">Kéo thả file hoặc nhấn nút để tải lên...</span>
+            <span className="sm:hidden">Nhấn để tải file...</span>
           </div>
         </div>
       </div>
@@ -1160,11 +1243,11 @@ const ChatArea = ({ user }) => {
 
       {/* Upload Dialog */}
       {showUploadDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full h-[70vh] flex flex-col overflow-hidden">
-            <div className="p-6 border-b border-gray-100">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl max-w-2xl w-full h-[85vh] sm:h-[75vh] md:h-[70vh] flex flex-col overflow-hidden">
+            <div className="p-4 sm:p-6 border-b border-gray-100 flex-shrink-0">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">Tải lên file</h3>
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900">Tải lên file</h3>
                 <button 
                   onClick={() => {
                     setShowUploadDialog(false);
