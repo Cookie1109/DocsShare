@@ -17,7 +17,7 @@ import {
   deleteGroupFromFirestore,
   updateUserProfile
 } from '../services/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 const AuthContext = createContext();
@@ -118,11 +118,87 @@ export const AuthProvider = ({ children }) => {
     };
   }, [user?.uid]);
 
-  // Load user groups when user changes
+  // 🔥 Real-time listener for user groups
   useEffect(() => {
-    if (user?.uid && !profileIncomplete) {
-      loadUserGroups();
+    if (!user?.uid || profileIncomplete) {
+      setUserGroups([]);
+      return;
     }
+
+    console.log('🔥 Setting up real-time listener for user groups');
+    
+    const groupUnsubscribes = new Map(); // Track group listeners
+    
+    // Listen to group_members collection for this user
+    const membershipQuery = query(
+      collection(db, 'group_members'),
+      where('userId', '==', user.uid)
+    );
+
+    const membershipUnsubscribe = onSnapshot(membershipQuery, (snapshot) => {
+      console.log('📥 Group memberships updated');
+      
+      const currentGroupIds = new Set(snapshot.docs.map(doc => doc.data().groupId));
+      
+      if (currentGroupIds.size === 0) {
+        // Cleanup all group listeners
+        groupUnsubscribes.forEach(unsub => unsub());
+        groupUnsubscribes.clear();
+        setUserGroups([]);
+        return;
+      }
+
+      // Remove listeners for groups user left
+      groupUnsubscribes.forEach((unsub, groupId) => {
+        if (!currentGroupIds.has(groupId)) {
+          unsub();
+          groupUnsubscribes.delete(groupId);
+        }
+      });
+
+      // Add listeners for new groups
+      currentGroupIds.forEach((groupId) => {
+        if (!groupUnsubscribes.has(groupId)) {
+          // Get user role
+          const membership = snapshot.docs.find(d => d.data().groupId === groupId);
+          const userRole = membership?.data().role;
+          
+          // Setup real-time listener for this group
+          const groupRef = doc(db, 'groups', groupId);
+          const groupUnsub = onSnapshot(groupRef, (groupDoc) => {
+            if (groupDoc.exists()) {
+              setUserGroups((prev) => {
+                const filtered = prev.filter(g => g.id !== groupId);
+                return [...filtered, {
+                  id: groupDoc.id,
+                  ...groupDoc.data(),
+                  userRole
+                }].sort((a, b) => {
+                  // Sort by createdAt descending
+                  const aTime = a.createdAt?.seconds || 0;
+                  const bTime = b.createdAt?.seconds || 0;
+                  return bTime - aTime;
+                });
+              });
+            } else {
+              // Group deleted
+              setUserGroups((prev) => prev.filter(g => g.id !== groupId));
+            }
+          });
+          
+          groupUnsubscribes.set(groupId, groupUnsub);
+        }
+      });
+    }, (error) => {
+      console.error('❌ Error listening to groups:', error);
+    });
+
+    return () => {
+      console.log('🔌 Cleaning up groups listeners');
+      membershipUnsubscribe();
+      groupUnsubscribes.forEach(unsub => unsub());
+      groupUnsubscribes.clear();
+    };
   }, [user?.uid, profileIncomplete]);
 
   const checkProfileStatus = async (firebaseUser) => {

@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, Users, Crown, MoreVertical, Settings, UserX, Camera, 
   Search, Filter, FileText, Hash, Edit2, Trash2, LogOut,
   UserPlus, Shield, Eye, Download, Calendar, Tag, File,
   FileImage, FileSpreadsheet, FileCode, Archive, Paperclip,
-  Plus
+  Plus, Image as ImageIcon, Check, Loader
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
 import AddMemberModal from './AddMemberModal';
+import { getFirestore, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { auth } from '../../config/firebase';
 
 const GroupSidebar = ({ group, onClose }) => {
   const [activeTab, setActiveTab] = useState('members');
@@ -17,14 +19,67 @@ const GroupSidebar = ({ group, onClose }) => {
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
   const [showLeaveGroupModal, setShowLeaveGroupModal] = useState(false);
+  const [showEditGroupModal, setShowEditGroupModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
   
+  // Edit group state
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupPhoto, setEditGroupPhoto] = useState('');
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
+  
+  // Real-time group data
+  const [realtimeGroupData, setRealtimeGroupData] = useState(null);
+  
   const { userGroups, selectedGroup, groupMembers, selectGroup, addMemberToGroup, removeMemberFromGroup, updateMemberRoleInGroup, checkUserRole, deleteGroup, leaveGroup, user } = useAuth();
 
-  // Get current group data - prioritize selectedGroup from context
-  const currentGroup = userGroups.find(g => g.id === selectedGroup) || group;
+  // Get current group data - prioritize real-time data, then context, then prop
+  const currentGroup = realtimeGroupData || userGroups.find(g => g.id === selectedGroup) || group;
+  
+  // 🔥 Real-time listener for group data
+  useEffect(() => {
+    if (!selectedGroup) {
+      setRealtimeGroupData(null);
+      return;
+    }
+
+    console.log('🔥 Setting up real-time listener for group:', selectedGroup);
+    const db = getFirestore();
+    const groupRef = doc(db, 'groups', selectedGroup);
+
+    const unsubscribe = onSnapshot(groupRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        console.log('📥 Real-time group update:', data);
+        
+        // Chỉ update nếu data thay đổi
+        setRealtimeGroupData((prev) => {
+          const newData = {
+            id: snapshot.id,
+            name: data.name,
+            groupPhotoUrl: data.photoURL || data.groupPhotoUrl,
+            creatorId: data.creatorId,
+            ...data
+          };
+          
+          // Kiểm tra nếu data giống nhau thì không update
+          if (prev && prev.name === newData.name && prev.groupPhotoUrl === newData.groupPhotoUrl) {
+            return prev;
+          }
+          
+          return newData;
+        });
+      }
+    }, (error) => {
+      console.error('❌ Error listening to group:', error);
+    });
+
+    return () => {
+      console.log('🔌 Cleaning up group listener');
+      unsubscribe();
+    };
+  }, [selectedGroup]);
   
   // Early return if no group data
   if (!currentGroup) {
@@ -201,6 +256,88 @@ const GroupSidebar = ({ group, onClose }) => {
     }
   };
 
+  // ✏️ Edit Group Functions
+  const handleEditGroupName = () => {
+    setEditGroupName(currentGroup?.name || '');
+    setShowEditGroupModal(true);
+  };
+
+  const handleEditGroupPhoto = () => {
+    // Tạo input file ẩn để chọn ảnh
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        // Kiểm tra kích thước file (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+          alert('Kích thước ảnh không được vượt quá 5MB');
+          return;
+        }
+        
+        // Chuyển file thành base64
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const base64Image = event.target.result;
+          await updateGroupPhoto(base64Image);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    
+    input.click();
+  };
+
+  const updateGroupPhoto = async (photoUrl) => {
+    if (!selectedGroup) return;
+
+    setIsSavingGroup(true);
+    try {
+      const db = getFirestore();
+      const groupRef = doc(db, 'groups', selectedGroup);
+      
+      await updateDoc(groupRef, {
+        groupPhotoUrl: photoUrl || null,
+        updatedAt: new Date().toISOString()
+      });
+
+      console.log('✅ Group photo updated successfully');
+    } catch (error) {
+      console.error('❌ Error updating group photo:', error);
+      alert('Có lỗi xảy ra khi cập nhật ảnh nhóm');
+    } finally {
+      setIsSavingGroup(false);
+    }
+  };
+
+  const handleSaveGroupName = async () => {
+    if (!selectedGroup || !editGroupName.trim()) {
+      alert('Tên nhóm không được để trống');
+      return;
+    }
+
+    setIsSavingGroup(true);
+    try {
+      const db = getFirestore();
+      const groupRef = doc(db, 'groups', selectedGroup);
+      
+      await updateDoc(groupRef, {
+        name: editGroupName.trim(),
+        updatedAt: new Date().toISOString()
+      });
+
+      console.log('✅ Group name updated successfully');
+      setShowEditGroupModal(false);
+    } catch (error) {
+      console.error('❌ Error updating group name:', error);
+      alert('Có lỗi xảy ra khi cập nhật tên nhóm');
+    } finally {
+      setIsSavingGroup(false);
+    }
+  };
+
   // Invite member functions (simplified for now)
   const handleInviteMember = () => {
     // Open the AddMemberModal
@@ -324,7 +461,8 @@ const GroupSidebar = ({ group, onClose }) => {
         {/* Group Info */}
         <div className="p-3 sm:p-4">
           <div className="flex items-center space-x-3 sm:space-x-4">
-            <div className="relative flex-shrink-0">
+            {/* Group Photo with Camera Icon */}
+            <div className="relative flex-shrink-0 group">
               <div className="w-14 h-14 sm:w-16 sm:h-16 bg-orange-500 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg">
                 {currentGroup?.groupPhotoUrl ? (
                   <img src={currentGroup.groupPhotoUrl} alt={currentGroup.name} className="w-full h-full object-cover" />
@@ -334,13 +472,30 @@ const GroupSidebar = ({ group, onClose }) => {
                   </span>
                 )}
               </div>
+              {/* Camera Icon Overlay - Click to change photo */}
+              <button
+                onClick={handleEditGroupPhoto}
+                className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Đổi ảnh nhóm"
+              >
+                <Camera className="h-6 w-6 text-white" />
+              </button>
             </div>
+            
+            {/* Group Name with Edit Icon */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <h4 className="text-lg font-bold text-white truncate">{currentGroup?.name || 'Tên nhóm'}</h4>
                 {isGroupCreator() && (
                   <Crown className="h-4 w-4 text-yellow-300" />
                 )}
+                <button
+                  onClick={handleEditGroupName}
+                  className="p-1 hover:bg-emerald-600 rounded transition-colors"
+                  title="Sửa tên nhóm"
+                >
+                  <Edit2 className="h-3.5 w-3.5 text-white" />
+                </button>
               </div>
               <p className="text-emerald-100 text-sm">
                 {groupMembers?.length || 0} thành viên
@@ -686,6 +841,69 @@ const GroupSidebar = ({ group, onClose }) => {
                   className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                 >
                   Xóa nhóm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Group Name Modal */}
+      {showEditGroupModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                  <Edit2 className="h-5 w-5 text-emerald-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">Đổi tên nhóm</h3>
+              </div>
+              
+              {/* Group Name */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tên nhóm mới
+                </label>
+                <input
+                  type="text"
+                  value={editGroupName}
+                  onChange={(e) => setEditGroupName(e.target.value)}
+                  placeholder="Nhập tên nhóm mới"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && editGroupName.trim()) {
+                      handleSaveGroupName();
+                    }
+                  }}
+                />
+              </div>
+              
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowEditGroupModal(false)}
+                  disabled={isSavingGroup}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleSaveGroupName}
+                  disabled={isSavingGroup || !editGroupName.trim()}
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSavingGroup ? (
+                    <>
+                      <Loader className="h-4 w-4 animate-spin" />
+                      Đang lưu...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      Lưu
+                    </>
+                  )}
                 </button>
               </div>
             </div>

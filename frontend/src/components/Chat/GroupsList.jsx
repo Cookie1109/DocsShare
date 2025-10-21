@@ -1,16 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Users, Plus, Settings, Crown, Search, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 const GroupsList = ({ onClose, onSelectGroup }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [memberCounts, setMemberCounts] = useState({});
   const { userGroups, user, selectGroup } = useAuth();
 
   const filteredGroups = userGroups.filter(group =>
     group.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // 🔥 Real-time listener for member counts
+  useEffect(() => {
+    if (userGroups.length === 0) return;
+
+    const unsubscribes = userGroups.map((group) => {
+      const memberQuery = query(
+        collection(db, 'group_members'),
+        where('groupId', '==', group.id)
+      );
+
+      return onSnapshot(memberQuery, (snapshot) => {
+        setMemberCounts((prev) => ({
+          ...prev,
+          [group.id]: snapshot.size
+        }));
+      });
+    });
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [userGroups]);
 
   const handleGroupSelect = async (groupId) => {
     await selectGroup(groupId);
@@ -20,8 +46,7 @@ const GroupsList = ({ onClose, onSelectGroup }) => {
   };
 
   const getGroupMemberCount = (group) => {
-    // This would need to be implemented based on your data structure
-    return "?"; // Placeholder
+    return memberCounts[group.id] || 0;
   };
 
   const isUserAdmin = (group) => {
