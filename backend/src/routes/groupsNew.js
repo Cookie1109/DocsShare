@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const verifyFirebaseToken = require('../middleware/firebaseAuth');
 const Group = require('../models/Group');
 const TagController = require('../controllers/tagController');
 const ActivityController = require('../controllers/activityController');
 const FileController = require('../controllers/fileController');
+const { executeQuery } = require('../config/db');
 
 // Middleware authentication cho tất cả routes
-router.use(auth);
+router.use(verifyFirebaseToken);
 
 /**
  * Group Management Routes
@@ -156,12 +157,116 @@ router.put('/:groupId', async (req, res) => {
 // Xóa nhóm
 router.delete('/:groupId', async (req, res) => {
   try {
-    const { groupId } = req.params;
+    let { groupId } = req.params;
     const deletedBy = req.user.id;
     
-    const result = await Group.delete(parseInt(groupId), deletedBy);
+    // Convert Firestore ID to MySQL ID if needed
+    let mysqlGroupId;
+    let firestoreGroupId = groupId;
+    
+    if (isNaN(groupId)) {
+      // groupId is Firestore ID (string), need to convert to MySQL ID
+      console.log(`🔄 Converting Firestore ID ${groupId} to MySQL ID...`);
+      const mapping = await executeQuery(
+        `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+        [groupId]
+      );
+      
+      if (!mapping || mapping.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Group not found'
+        });
+      }
+      
+      mysqlGroupId = mapping[0].mysql_id;
+      console.log(`✅ Mapped to MySQL group ${mysqlGroupId}`);
+    } else {
+      // groupId is MySQL ID, need to get Firestore ID
+      mysqlGroupId = parseInt(groupId);
+      const mapping = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [mysqlGroupId]
+      );
+      
+      if (mapping && mapping.length > 0) {
+        firestoreGroupId = mapping[0].firestore_id;
+      }
+    }
+    
+    // Delete from MySQL (includes members, files, tags via CASCADE)
+    const result = await Group.delete(mysqlGroupId, deletedBy);
     
     if (result.success) {
+      // Delete from Firebase Firestore
+      try {
+        const admin = require('../config/firebaseAdmin');
+        const db = admin.firestore();
+        const batch = db.batch();
+        
+        console.log(`🗑️ Deleting Firebase data for group ${firestoreGroupId}...`);
+        
+        // 1. Delete all group files (subcollection: groups/{groupId}/files)
+        const filesSnapshot = await db.collection('groups')
+          .doc(firestoreGroupId)
+          .collection('files')
+          .get();
+        
+        filesSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        // 2. Delete all group tags (subcollection: groups/{groupId}/tags)
+        const tagsSnapshot = await db.collection('groups')
+          .doc(firestoreGroupId)
+          .collection('tags')
+          .get();
+        
+        tagsSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        // 3. Delete all group messages (subcollection: groups/{groupId}/messages)
+        const messagesSnapshot = await db.collection('groups')
+          .doc(firestoreGroupId)
+          .collection('messages')
+          .get();
+        
+        messagesSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        // 4. Delete all group members
+        const membersSnapshot = await db.collection('group_members')
+          .where('groupId', '==', firestoreGroupId)
+          .get();
+        
+        membersSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        // 5. Delete group mapping
+        const mappingSnapshot = await db.collection('group_mapping')
+          .where('firestore_id', '==', firestoreGroupId)
+          .get();
+        
+        mappingSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        // 6. Delete group document (LAST - after all subcollections)
+        const groupRef = db.collection('groups').doc(firestoreGroupId);
+        batch.delete(groupRef);
+        
+        // Commit all deletes
+        await batch.commit();
+        
+        console.log(`✅ Deleted from Firebase: Group + ${membersSnapshot.size} members + ${filesSnapshot.size} files + ${tagsSnapshot.size} tags`);
+      } catch (firebaseError) {
+        console.error('❌ Failed to delete from Firebase:', firebaseError);
+        // Don't fail the whole operation if Firebase deletion fails
+      }
+      
       res.json(result);
     } else {
       res.status(400).json(result);
@@ -310,12 +415,75 @@ router.post('/:groupId/join', async (req, res) => {
 // Leave nhóm
 router.post('/:groupId/leave', async (req, res) => {
   try {
-    const { groupId } = req.params;
+    let { groupId } = req.params;
     const userId = req.user.id;
     
-    const result = await Group.removeMember(parseInt(groupId), userId, userId);
+    // Convert Firestore ID to MySQL ID if needed
+    let mysqlGroupId;
+    let firestoreGroupId = groupId;
+    
+    if (isNaN(groupId)) {
+      // groupId is Firestore ID (string), need to convert to MySQL ID
+      console.log(`🔄 Converting Firestore ID ${groupId} to MySQL ID...`);
+      const mapping = await executeQuery(
+        `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+        [groupId]
+      );
+      
+      if (!mapping || mapping.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Group not found'
+        });
+      }
+      
+      mysqlGroupId = mapping[0].mysql_id;
+      console.log(`✅ Mapped to MySQL group ${mysqlGroupId}`);
+    } else {
+      // groupId is MySQL ID, need to get Firestore ID
+      mysqlGroupId = parseInt(groupId);
+      const mapping = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [mysqlGroupId]
+      );
+      
+      if (mapping && mapping.length > 0) {
+        firestoreGroupId = mapping[0].firestore_id;
+      }
+    }
+    
+    // Remove from MySQL
+    const result = await Group.removeMember(mysqlGroupId, userId, userId);
     
     if (result.success) {
+      // Remove from Firebase Firestore
+      try {
+        const admin = require('../config/firebaseAdmin');
+        const db = admin.firestore();
+        
+        // Query to find the member document (since Firebase uses auto-generated IDs)
+        const memberSnapshot = await db.collection('group_members')
+          .where('groupId', '==', firestoreGroupId)
+          .where('userId', '==', userId)
+          .get();
+        
+        if (!memberSnapshot.empty) {
+          // Delete all matching documents (should be only one)
+          const batch = db.batch();
+          memberSnapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+          
+          console.log(`✅ Removed user ${userId} from Firebase group ${firestoreGroupId} (${memberSnapshot.size} document(s))`);
+        } else {
+          console.log(`⚠️ No Firebase document found for user ${userId} in group ${firestoreGroupId}`);
+        }
+      } catch (firebaseError) {
+        console.error('❌ Failed to remove from Firebase:', firebaseError);
+        // Don't fail the whole operation if Firebase deletion fails
+      }
+      
       res.json(result);
     } else {
       res.status(400).json(result);

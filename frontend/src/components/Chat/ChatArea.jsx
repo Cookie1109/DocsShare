@@ -972,21 +972,8 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {/* Welcome message */}
-        {!currentGroup ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center max-w-md mx-auto p-8">
-              <Users className="w-24 h-24 text-gray-300 mx-auto mb-6" />
-              <h3 className="text-2xl font-bold text-gray-800 mb-3">
-                Chào mừng đến với DocsShare! 👋
-              </h3>
-              <p className="text-gray-600 mb-6 leading-relaxed">
-                Chọn một nhóm từ sidebar bên trái để bắt đầu chia sẻ tài liệu, hoặc tạo nhóm mới nếu bạn chưa có nhóm nào.
-              </p>
-
-            </div>
-          </div>
-        ) : filesError ? (
+        {/* Files display */}
+        {filesError ? (
           // Error state
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-md mx-auto p-8">

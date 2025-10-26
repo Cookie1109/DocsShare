@@ -1,5 +1,5 @@
 const { executeQuery, executeTransaction } = require('../config/db');
-const { syncGroup, syncGroupMember } = require('../config/syncHelper');
+const { syncGroup, syncGroupMember, syncGroupDelete } = require('../config/syncHelper');
 
 /**
  * Group Model - Quản lý nhóm
@@ -117,7 +117,6 @@ class Group {
           u.email,
           u.display_name,
           u.tag,
-          u.avatar_url,
           gm.role,
           gm.joined_at
         FROM group_members gm
@@ -313,7 +312,7 @@ class Group {
   }
   
   /**
-   * Xóa nhóm
+   * Xóa nhóm (xóa cả MySQL và Firebase, bao gồm files, tags, members)
    * @param {number} groupId - ID nhóm
    * @param {string} deletedBy - Firebase UID của người xóa
    * @returns {Promise<Object>} Kết quả xóa nhóm
@@ -321,22 +320,68 @@ class Group {
   static async delete(groupId, deletedBy) {
     try {
       return await executeTransaction(async (connection) => {
-        // Kiểm tra quyền xóa (chỉ creator)
-        const [creatorCheck] = await connection.execute(
-          `SELECT creator_id FROM \`groups\` WHERE id = ?`,
-          [groupId]
+        // Kiểm tra quyền xóa (creator hoặc admin)
+        const [groupInfo] = await connection.execute(
+          `SELECT g.creator_id, gm.role 
+           FROM \`groups\` g
+           LEFT JOIN group_members gm ON g.id = gm.group_id AND gm.user_id = ?
+           WHERE g.id = ?`,
+          [deletedBy, groupId]
         );
         
-        if (creatorCheck.length === 0 || creatorCheck[0].creator_id !== deletedBy) {
-          throw new Error('Only group creator can delete the group');
+        if (groupInfo.length === 0) {
+          throw new Error('Group not found');
         }
         
-        // Xóa nhóm (CASCADE sẽ tự động xóa group_members, files, tags, etc.)
-        await connection.execute(`DELETE FROM \`groups\` WHERE id = ?`, [groupId]);
+        const isCreator = groupInfo[0].creator_id === deletedBy;
+        const isAdmin = groupInfo[0].role === 'admin';
+        
+        if (!isCreator && !isAdmin) {
+          throw new Error('Only group creator or admin can delete the group');
+        }
+        
+        console.log(`🗑️ Deleting group ${groupId} from MySQL...`);
+        
+        // Xóa files trong MySQL (CASCADE không xóa file từ storage)
+        const [deletedFiles] = await connection.execute(
+          `DELETE FROM files WHERE group_id = ?`,
+          [groupId]
+        );
+        console.log(`✅ Deleted ${deletedFiles.affectedRows} files from MySQL`);
+        
+        // Xóa tags trong MySQL
+        const [deletedTags] = await connection.execute(
+          `DELETE FROM tags WHERE group_id = ?`,
+          [groupId]
+        );
+        console.log(`✅ Deleted ${deletedTags.affectedRows} tags from MySQL`);
+        
+        // Xóa group members
+        const [deletedMembers] = await connection.execute(
+          `DELETE FROM group_members WHERE group_id = ?`,
+          [groupId]
+        );
+        console.log(`✅ Deleted ${deletedMembers.affectedRows} members from MySQL`);
+        
+        // Xóa nhóm
+        const [deletedGroup] = await connection.execute(
+          `DELETE FROM \`groups\` WHERE id = ?`,
+          [groupId]
+        );
+        console.log(`✅ Deleted group ${groupId} from MySQL`);
+        
+        // Sync xóa sang Firebase (xóa group, members, files, tags)
+        const syncResult = await syncGroupDelete(groupId);
+        
+        if (!syncResult.success) {
+          console.warn(`⚠️ Firebase sync failed but MySQL delete succeeded`);
+          console.warn(`❌ DATA MISMATCH: Group ${groupId} deleted in MySQL but may still exist in Firebase`);
+        }
         
         return {
           success: true,
-          message: 'Group deleted successfully'
+          message: 'Group deleted successfully',
+          firebaseSyncSuccess: syncResult.success
         };
       });
     } catch (error) {

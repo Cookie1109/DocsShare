@@ -258,6 +258,92 @@ class SyncHelper {
       return { success: false, error: error.message };
     }
   }
+
+  /**
+   * Sync complete group deletion (xóa nhóm + tất cả related data trong Firebase)
+   */
+  static async syncGroupDelete(groupId) {
+    try {
+      const { executeQuery } = require('./db');
+      const [mapping] = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [groupId]
+      );
+
+      if (mapping.length === 0) {
+        console.warn(`⚠️ No Firestore mapping for group ${groupId}`);
+        return { success: false, error: 'No Firestore mapping' };
+      }
+
+      const firestoreGroupId = mapping[0].firestore_id;
+      const admin = require('./firebaseAdmin');
+      const db = admin.firestore();
+      const batch = db.batch();
+
+      console.log(`🗑️ Deleting group ${firestoreGroupId} and all related data from Firebase...`);
+
+      // 1. Delete all group members
+      const membersSnapshot = await db
+        .collection('group_members')
+        .where('groupId', '==', firestoreGroupId)
+        .get();
+      
+      membersSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      console.log(`✅ Deleted ${membersSnapshot.size} group members`);
+
+      // 2. Delete all files in group
+      const filesSnapshot = await db
+        .collection('files')
+        .where('groupId', '==', firestoreGroupId)
+        .get();
+      
+      filesSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      console.log(`✅ Deleted ${filesSnapshot.size} files`);
+
+      // 3. Delete all tags in group
+      const tagsSnapshot = await db
+        .collection('tags')
+        .where('groupId', '==', firestoreGroupId)
+        .get();
+      
+      tagsSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      console.log(`✅ Deleted ${tagsSnapshot.size} tags`);
+
+      // 4. Delete all messages in group (if exists)
+      const groupRef = db.collection('groups').doc(firestoreGroupId);
+      const messagesSnapshot = await groupRef.collection('messages').get();
+      
+      messagesSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      console.log(`✅ Deleted ${messagesSnapshot.size} messages`);
+
+      // 5. Delete group document itself
+      batch.delete(groupRef);
+
+      // 6. Commit all deletes
+      await batch.commit();
+      console.log(`✅ Firebase batch delete committed`);
+
+      // 7. Delete group mapping
+      await executeQuery(
+        `DELETE FROM group_mapping WHERE mysql_id = ?`,
+        [groupId]
+      );
+      console.log(`✅ Deleted group mapping for group ${groupId}`);
+
+      return { success: true };
+    } catch (error) {
+      console.error(`❌ Group delete sync failed:`, error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = SyncHelper;

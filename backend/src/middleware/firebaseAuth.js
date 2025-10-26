@@ -29,6 +29,7 @@ const verifyFirebaseToken = async (req, res, next) => {
     
     // Attach user info to request
     req.user = {
+      id: decodedToken.uid,  // Alias for compatibility
       uid: decodedToken.uid,
       email: decodedToken.email,
       displayName: decodedToken.name || decodedToken.email || 'Unknown User',

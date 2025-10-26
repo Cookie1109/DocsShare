@@ -4,7 +4,8 @@ const { syncUser } = require('../config/syncHelper');
 /**
  * User Model - Quản lý người dùng
  * 
- * Schema: users(id, email, display_name, tag, avatar_url, created_at, last_login_at)
+ * Schema: users(id, email, display_name, tag, created_at, last_login_at)
+ * Note: avatar_url removed - avatars are now stored in Firebase only
  * Constraints: 
  * - id: VARCHAR(128) PRIMARY KEY (Firebase UID)
  * - email: UNIQUE NOT NULL
@@ -93,7 +94,7 @@ class User {
   static async findByEmail(email) {
     try {
       const query = `
-        SELECT id, email, display_name, tag, avatar_url, created_at, last_login_at
+        SELECT id, email, display_name, tag, created_at, last_login_at
         FROM users 
         WHERE email = ?
       `;

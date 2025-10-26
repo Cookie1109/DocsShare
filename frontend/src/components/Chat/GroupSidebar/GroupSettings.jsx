@@ -1,23 +1,49 @@
 import { useState } from 'react';
 import { Trash2, LogOut, AlertTriangle, Shield } from 'lucide-react';
+import { useAuth } from '../../../contexts/AuthContext';
 
-const GroupSettings = ({ group, currentUser, isAdmin, onGroupDelete, onClose }) => {
+const GroupSettings = ({ group, currentUser, isAdmin, onClose }) => {
+  const { deleteGroup, leaveGroup } = useAuth();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
 
-  const handleDeleteGroup = () => {
-    if (deleteInput === group.name) {
-      onGroupDelete?.(group.id);
-      onClose();
+  const handleDeleteGroup = async () => {
+    if (deleteInput === group.name && !isDeleting) {
+      setIsDeleting(true);
+      try {
+        const result = await deleteGroup(group.id);
+        if (result.success) {
+          onClose();
+        } else {
+          alert(`Lỗi: ${result.error}`);
+        }
+      } catch (error) {
+        alert(`Lỗi: ${error.message}`);
+      } finally {
+        setIsDeleting(false);
+      }
     }
   };
 
-  const handleLeaveGroup = () => {
-    // TODO: Implement leave group functionality
-    console.log('Leave group:', group.id);
-    setShowLeaveConfirm(false);
-    onClose();
+  const handleLeaveGroup = async () => {
+    if (!isLeaving) {
+      setIsLeaving(true);
+      try {
+        const result = await leaveGroup(group.id);
+        if (result.success) {
+          onClose();
+        } else {
+          alert(`Lỗi: ${result.error}`);
+        }
+      } catch (error) {
+        alert(`Lỗi: ${error.message}`);
+      } finally {
+        setIsLeaving(false);
+      }
+    }
   };
 
   return (
@@ -82,13 +108,15 @@ const GroupSettings = ({ group, currentUser, isAdmin, onGroupDelete, onClose }) 
                 <div className="flex gap-2">
                   <button
                     onClick={handleLeaveGroup}
-                    className="px-4 py-2 bg-yellow-600 text-white text-sm rounded-md hover:bg-yellow-700 transition-colors"
+                    disabled={isLeaving}
+                    className="px-4 py-2 bg-yellow-600 text-white text-sm rounded-md hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Xác nhận rời
+                    {isLeaving ? 'Đang rời...' : 'Xác nhận rời'}
                   </button>
                   <button
                     onClick={() => setShowLeaveConfirm(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300 transition-colors"
+                    disabled={isLeaving}
+                    className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300 transition-colors disabled:opacity-50"
                   >
                     Hủy
                   </button>
@@ -139,17 +167,18 @@ const GroupSettings = ({ group, currentUser, isAdmin, onGroupDelete, onClose }) 
                   <div className="flex gap-2">
                     <button
                       onClick={handleDeleteGroup}
-                      disabled={deleteInput !== group.name}
+                      disabled={deleteInput !== group.name || isDeleting}
                       className="px-4 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Xóa vĩnh viễn
+                      {isDeleting ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
                     </button>
                     <button
                       onClick={() => {
                         setShowDeleteConfirm(false);
                         setDeleteInput('');
                       }}
-                      className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300 transition-colors"
+                      disabled={isDeleting}
+                      className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300 transition-colors disabled:opacity-50"
                     >
                       Hủy
                     </button>

@@ -31,8 +31,8 @@ router.get('/status', verifyFirebaseToken, async (req, res) => {
       user: completed ? {
         display_name: user.display_name,
         tag: user.tag,
-        username: `${user.display_name}#${user.tag}`,
-        avatar_url: user.avatar_url || null
+        username: `${user.display_name}#${user.tag}`
+        // Note: avatar_url removed - frontend should get avatar from Firebase
       } : null
     });
   } catch (error) {

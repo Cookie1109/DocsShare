@@ -18,7 +18,7 @@ import {
   updateUserProfile
 } from '../services/firebase';
 import { doc, onSnapshot, collection, query, where, getDocs, getDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, auth } from '../config/firebase';
 
 const AuthContext = createContext();
 
@@ -140,15 +140,42 @@ export const AuthProvider = ({ children }) => {
       
       const currentGroupIds = new Set(snapshot.docs.map(doc => doc.data().groupId));
       
+      // Detect removed groups (groups that were in groupUnsubscribes but not in currentGroupIds)
+      const removedGroupIds = [];
+      groupUnsubscribes.forEach((unsub, groupId) => {
+        if (!currentGroupIds.has(groupId)) {
+          console.log(`🗑️ Group ${groupId} membership removed, cleaning up`);
+          removedGroupIds.push(groupId);
+          unsub();
+          groupUnsubscribes.delete(groupId);
+        }
+      });
+      
+      // Remove from UI immediately when membership is deleted
+      if (removedGroupIds.length > 0) {
+        setUserGroups((prev) => prev.filter(g => !removedGroupIds.includes(g.id)));
+        
+        // If selected group was removed, reset selection to show welcome screen
+        setSelectedGroup((current) => {
+          if (current && removedGroupIds.includes(current)) {
+            console.log(`🔄 Selected group ${current} membership removed, resetting to null`);
+            return null;
+          }
+          return current;
+        });
+      }
+      
       if (currentGroupIds.size === 0) {
         // Cleanup all group listeners
         groupUnsubscribes.forEach(unsub => unsub());
         groupUnsubscribes.clear();
         setUserGroups([]);
+        setSelectedGroup(null); // Reset selection when no groups left
+        console.log('🔄 No groups left, reset selectedGroup to null');
         return;
       }
 
-      // Remove listeners for groups user left
+      // Remove listeners for groups user left (already handled above, but keep for safety)
       groupUnsubscribes.forEach((unsub, groupId) => {
         if (!currentGroupIds.has(groupId)) {
           unsub();
@@ -181,8 +208,48 @@ export const AuthProvider = ({ children }) => {
                 });
               });
             } else {
-              // Group deleted
+              // Group deleted - remove from state and cleanup listener
+              console.log(`🗑️ Group ${groupId} deleted, removing from UI`);
               setUserGroups((prev) => prev.filter(g => g.id !== groupId));
+              
+              // If this was the selected group, reset selection to show welcome screen
+              setSelectedGroup((current) => {
+                if (current === groupId) {
+                  console.log(`🔄 Selected group ${groupId} was deleted, resetting to null`);
+                  return null;
+                }
+                return current;
+              });
+              
+              // Cleanup this group's listener
+              const unsub = groupUnsubscribes.get(groupId);
+              if (unsub) {
+                unsub();
+                groupUnsubscribes.delete(groupId);
+              }
+            }
+          }, (error) => {
+            console.error(`❌ Error listening to group ${groupId}:`, error);
+            // If permission denied (group deleted), remove from state
+            if (error.code === 'permission-denied') {
+              console.log(`🗑️ Group ${groupId} access denied (deleted), removing from UI`);
+              setUserGroups((prev) => prev.filter(g => g.id !== groupId));
+              
+              // If this was the selected group, reset selection to show welcome screen
+              setSelectedGroup((current) => {
+                if (current === groupId) {
+                  console.log(`🔄 Selected group ${groupId} was deleted (permission-denied), resetting to null`);
+                  return null;
+                }
+                return current;
+              });
+              
+              // Cleanup this group's listener
+              const unsub = groupUnsubscribes.get(groupId);
+              if (unsub) {
+                unsub();
+                groupUnsubscribes.delete(groupId);
+              }
             }
           });
           
@@ -517,21 +584,35 @@ export const AuthProvider = ({ children }) => {
     if (!user?.uid) return { success: false, error: 'User not authenticated' };
     
     try {
-      // Check if user is admin/creator
-      const roleCheck = await checkUserRole(groupId, user.uid);
-      if (!roleCheck.success || roleCheck.role !== 'admin') {
-        return { success: false, error: 'Only admin can delete group' };
+      // Get token from Firebase Auth (works for both email/password and Google login)
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        return { success: false, error: 'No authenticated user found' };
       }
+      
+      const token = await currentUser.getIdToken();
+      
+      // Call backend API to delete group (will delete from both MySQL and Firebase)
+      const response = await fetch(`http://localhost:5000/api/groups/${groupId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
 
-      // Delete group from Firestore
-      const result = await deleteGroupFromFirestore(groupId);
+      const result = await response.json();
+      
       if (result.success) {
-        await loadUserGroups(); // Refresh groups list
+        // Refresh groups list
+        await loadUserGroups();
+        
+        // Clear selected group if it was the deleted one
         if (selectedGroup === groupId) {
           setSelectedGroup(null);
           setGroupMembers([]);
         }
       }
+      
       return result;
     } catch (error) {
       console.error('Error deleting group:', error);
@@ -543,36 +624,36 @@ export const AuthProvider = ({ children }) => {
     if (!user?.uid) return { success: false, error: 'User not authenticated' };
     
     try {
-      // Find user's membership
-      const userMember = groupMembers.find(member => member.userId === user.uid);
-      if (!userMember) {
-        return { success: false, error: 'You are not a member of this group' };
+      // Get token from Firebase Auth (works for both email/password and Google login)
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        return { success: false, error: 'No authenticated user found' };
       }
+      
+      const token = await currentUser.getIdToken();
+      
+      // Call backend API to leave group (will remove member from both MySQL and Firebase)
+      const response = await fetch(`http://localhost:5000/api/groups/${groupId}/leave`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
 
-      // Check if this is the last member in the group
-      if (groupMembers.length === 1) {
-        // If only one member left, delete the entire group
-        const deleteResult = await deleteGroupFromFirestore(groupId);
-        if (deleteResult.success) {
-          await loadUserGroups(); // Refresh groups list
-          if (selectedGroup === groupId) {
-            setSelectedGroup(null);
-            setGroupMembers([]);
-          }
+      const result = await response.json();
+      
+      if (result.success) {
+        // Refresh groups list
+        await loadUserGroups();
+        
+        // Clear selected group if it was the one we left
+        if (selectedGroup === groupId) {
+          setSelectedGroup(null);
+          setGroupMembers([]);
         }
-        return deleteResult;
-      } else {
-        // Remove user from group normally
-        const result = await removeMemberFromGroup(userMember.membershipId, groupId);
-        if (result.success) {
-          await loadUserGroups(); // Refresh groups list
-          if (selectedGroup === groupId) {
-            setSelectedGroup(null);
-            setGroupMembers([]);
-          }
-        }
-        return result;
       }
+      
+      return result;
     } catch (error) {
       console.error('Error leaving group:', error);
       return { success: false, error: error.message };

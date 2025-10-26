@@ -850,13 +850,15 @@ class SyncService {
       if (action === 'DELETE') {
         await userRef.delete();
       } else {
-        await userRef.set({
+        // Don't sync avatar_url from MySQL to Firebase - avatar is managed in Firebase only
+        const syncData = {
           email: userData.email,
           displayName: userData.display_name,
           tag: userData.tag,
-          avatar: userData.avatar_url,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        };
+        
+        await userRef.set(syncData, { merge: true });
       }
 
       await this.logAudit({
