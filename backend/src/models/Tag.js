@@ -1,4 +1,5 @@
 const { executeQuery, executeTransaction } = require('../config/db');
+const { syncTag } = require('../config/syncHelper');
 
 /**
  * Tag Model - Quản lý tags cục bộ theo nhóm
@@ -67,6 +68,13 @@ class Tag {
            VALUES (?, 'create_tag', ?, JSON_OBJECT('tag_name', ?), NOW())`,
           [creator_id, tagId.toString(), name]
         );
+        
+        // Sync to Firebase after successful tag creation
+        await syncTag(tagId, group_id, 'CREATE', {
+          name,
+          creatorId: creator_id,
+          createdAt: new Date()
+        });
         
         return {
           success: true,
@@ -304,6 +312,13 @@ class Tag {
           [newName, tagId]
         );
         
+        // Sync to Firebase after successful update
+        await syncTag(tagId, group_id, 'UPDATE', {
+          name: newName,
+          creatorId: creator_id,
+          updatedAt: new Date()
+        });
+        
         return {
           success: true,
           message: 'Tag updated successfully',
@@ -359,6 +374,9 @@ class Tag {
         
         // Xóa tag (CASCADE sẽ tự động xóa file_tags)
         await connection.execute(`DELETE FROM tags WHERE id = ?`, [tagId]);
+        
+        // Sync to Firebase after successful deletion
+        await syncTag(tagId, group_id, 'DELETE', null);
         
         return {
           success: true,

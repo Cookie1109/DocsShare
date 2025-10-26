@@ -1,4 +1,5 @@
 const { executeQuery, executeTransaction } = require('../config/db');
+const { syncFile } = require('../config/syncHelper');
 
 /**
  * File Model - Quản lý files
@@ -87,6 +88,9 @@ class File {
            VALUES (?, 'upload', ?, JSON_OBJECT('file_name', ?, 'file_size', ?), NOW())`,
           [uploader_id, fileId.toString(), name, size_bytes]
         );
+        
+        // Sync to Firebase after successful file creation
+        await syncFile(fileId, 'created');
         
         return {
           success: true,
@@ -420,6 +424,9 @@ class File {
         
         // Xóa file (CASCADE sẽ tự động xóa file_tags)
         await connection.execute(`DELETE FROM files WHERE id = ?`, [fileId]);
+        
+        // Sync to Firebase after successful deletion
+        await syncFile(fileId, 'deleted');
         
         // Log activity
         await connection.execute(

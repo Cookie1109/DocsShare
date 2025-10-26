@@ -44,9 +44,6 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
   // Get current group object
   const currentGroup = userGroups.find(g => g.id === selectedGroup);
   
-  // Use custom hook for file management
-  const { files, loading: filesLoading, error: filesError, uploadFiles, deleteFile, refreshFiles, setError } = useGroupFiles(selectedGroup);
-  
   // Chat messages state
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -75,10 +72,52 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
     }
   }, [selectedGroup]);
 
-  // Load tags when group changes
+  // Use custom hook for file management - pass loadTags callback
+  const { files, loading: filesLoading, error: filesError, uploadFiles, deleteFile, refreshFiles, setError } = useGroupFiles(selectedGroup, loadTags);
+
+  // Load tags REAL-TIME (using Firestore listener)
   useEffect(() => {
-    loadTags();
-  }, [loadTags]);
+    if (!selectedGroup) {
+      setAvailableTags([]);
+      return;
+    }
+
+    setLoadingTags(true);
+    
+    // Initial load from API
+    tagsService.getGroupTags(selectedGroup).then(tags => {
+      console.log('📥 Initial tags loaded:', tags);
+      setAvailableTags(tags);
+      setLoadingTags(false);
+    }).catch(error => {
+      console.error('Error loading initial tags:', error);
+      setLoadingTags(false);
+    });
+
+    // Setup real-time listener for ALL tags (backend filters by group)
+    const db = getFirestore();
+    const tagsRef = collection(db, 'tags');
+    
+    const unsubscribe = onSnapshot(
+      tagsRef,
+      (snapshot) => {
+        console.log('🔄 Tags collection changed, reloading...');
+        // Reload tags when any tag changes
+        tagsService.getGroupTags(selectedGroup).then(tags => {
+          console.log('✅ Tags updated (real-time):', tags);
+          setAvailableTags(tags);
+        }).catch(error => {
+          console.error('Error reloading tags:', error);
+        });
+      },
+      (error) => {
+        console.error('❌ Tags listener error:', error);
+        console.log('💡 Check Firebase Security Rules - tags collection needs read permission');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [selectedGroup]);
 
   // Load chat messages (real-time)
   useEffect(() => {
@@ -571,9 +610,12 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
       if (result.success) {
         console.log('✅ Upload successful:', result.message);
         
-        // Reload tags to ensure newly created tags are in the list
+        // Reload tags FIRST to ensure newly created tags are in the list
         console.log('🔄 Reloading tags after upload...');
         await loadTags();
+        
+        // Small delay to ensure tags are loaded before files are rendered
+        await new Promise(resolve => setTimeout(resolve, 200));
         
         // Mark all as completed
         const completedProgress = {};

@@ -1,4 +1,5 @@
 const { executeQuery, executeTransaction } = require('../config/db');
+const { syncGroup, syncGroupMember } = require('../config/syncHelper');
 
 /**
  * Group Model - Quản lý nhóm
@@ -14,23 +15,22 @@ class Group {
    * @param {string} groupData.name - Tên nhóm
    * @param {string} groupData.description - Mô tả nhóm
    * @param {string} groupData.creator_id - Firebase UID của người tạo
-   * @param {string} groupData.group_photo_url - URL ảnh nhóm (optional)
    * @returns {Promise<Object>} Kết quả tạo nhóm
    */
   static async create(groupData) {
     try {
-      const { name, description, creator_id, group_photo_url = null } = groupData;
+      const { name, description, creator_id } = groupData;
       
       if (!name || !creator_id) {
         throw new Error('Missing required fields: name, creator_id');
       }
       
       return await executeTransaction(async (connection) => {
-        // Tạo nhóm
+        // Tạo nhóm (không lưu group_photo_url - chỉ lưu trong Firebase)
         const [groupResult] = await connection.execute(
-          `INSERT INTO \`groups\` (name, description, group_photo_url, creator_id, created_at)
-           VALUES (?, ?, ?, ?, NOW())`,
-          [name, description, group_photo_url, creator_id]
+          `INSERT INTO \`groups\` (name, description, creator_id, created_at)
+           VALUES (?, ?, ?, NOW())`,
+          [name, description, creator_id]
         );
         
         const groupId = groupResult.insertId;
@@ -49,6 +49,10 @@ class Group {
           [creator_id, groupId.toString(), name]
         );
         
+        // Sync to Firebase after successful MySQL insert
+        await syncGroup(groupId, 'CREATE', { name, creator_id });
+        await syncGroupMember(groupId, creator_id, 'CREATE', { role: 'admin' });
+        
         return {
           success: true,
           message: 'Group created successfully',
@@ -56,7 +60,6 @@ class Group {
             id: groupId,
             name,
             description,
-            group_photo_url,
             creator_id,
             role: 'admin'
           }
@@ -179,6 +182,9 @@ class Group {
           [userId, groupId.toString(), addedBy]
         );
         
+        // Sync to Firebase after successful add
+        await syncGroupMember(groupId, userId, 'CREATE', { role });
+        
         return {
           success: true,
           message: 'Member added successfully'
@@ -232,9 +238,17 @@ class Group {
           throw new Error('User is not a member of this group');
         }
         
+        // Sync to Firebase after successful remove
+        const syncResult = await syncGroupMember(groupId, userId, 'DELETE', null);
+        if (!syncResult.success) {
+          console.error(`⚠️ Firebase sync failed after removing member ${userId} from group ${groupId}:`, syncResult.error);
+          console.error('❌ DATA MISMATCH: Member removed from MySQL but still in Firebase!');
+        }
+        
         return {
           success: true,
-          message: userId === removedBy ? 'Left group successfully' : 'Member removed successfully'
+          message: userId === removedBy ? 'Left group successfully' : 'Member removed successfully',
+          firebaseSyncSuccess: syncResult.success
         };
       });
     } catch (error) {
@@ -283,6 +297,9 @@ class Group {
         if (result.affectedRows === 0) {
           throw new Error('User is not a member of this group');
         }
+        
+        // Sync to Firebase after successful role update
+        await syncGroupMember(groupId, userId, 'UPDATE', { role: newRole });
         
         return {
           success: true,
@@ -347,7 +364,8 @@ class Group {
         throw new Error('Only admins can update group information');
       }
       
-      const allowedFields = ['name', 'description', 'group_photo_url'];
+      // Bỏ group_photo_url - không lưu trong MySQL, chỉ lưu trong Firebase
+      const allowedFields = ['name', 'description'];
       const updates = [];
       const values = [];
       

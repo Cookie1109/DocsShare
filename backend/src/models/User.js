@@ -1,4 +1,5 @@
 const { executeQuery, executeTransaction } = require('../config/db');
+const { syncUser } = require('../config/syncHelper');
 
 /**
  * User Model - Quản lý người dùng
@@ -18,29 +19,32 @@ class User {
    * @param {string} userData.email - Email
    * @param {string} userData.display_name - Tên hiển thị
    * @param {string} userData.tag - Tag (4-6 số)
-   * @param {string} userData.avatar_url - URL avatar (optional)
    * @returns {Promise<Object>} Kết quả tạo user
    */
   static async create(userData) {
     try {
-      const { id, email, display_name, tag, avatar_url = null } = userData;
+      const { id, email, display_name, tag } = userData;
       
       // Validate required fields
       if (!id || !email || !display_name || !tag) {
         throw new Error('Missing required fields: id, email, display_name, tag');
       }
       
+      // Không lưu avatar_url vào MySQL - chỉ lưu trong Firebase
       const query = `
-        INSERT INTO users (id, email, display_name, tag, avatar_url, created_at, last_login_at)
-        VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+        INSERT INTO users (id, email, display_name, tag, created_at, last_login_at)
+        VALUES (?, ?, ?, ?, NOW(), NOW())
       `;
       
-      await executeQuery(query, [id, email, display_name, tag, avatar_url]);
+      await executeQuery(query, [id, email, display_name, tag]);
+      
+      // Sync to Firebase after successful MySQL insert
+      await syncUser(id, 'created');
       
       return {
         success: true,
         message: 'User created successfully',
-        data: { id, email, display_name, tag, avatar_url }
+        data: { id, email, display_name, tag }
       };
     } catch (error) {
       console.error('Error creating user:', error);
@@ -68,7 +72,7 @@ class User {
   static async findById(userId) {
     try {
       const query = `
-        SELECT id, email, display_name, tag, avatar_url, created_at, last_login_at
+        SELECT id, email, display_name, tag, created_at, last_login_at
         FROM users 
         WHERE id = ?
       `;
@@ -132,7 +136,8 @@ class User {
    */
   static async updateProfile(userId, updates) {
     try {
-      const allowedFields = ['display_name', 'tag', 'avatar_url'];
+      // Bỏ avatar_url - không lưu trong MySQL, chỉ lưu trong Firebase
+      const allowedFields = ['display_name', 'tag'];
       const fields = [];
       const values = [];
       
@@ -156,6 +161,9 @@ class User {
       `;
       
       await executeQuery(query, values);
+      
+      // Sync to Firebase after successful MySQL update
+      await syncUser(userId, 'updated');
       
       return {
         success: true,

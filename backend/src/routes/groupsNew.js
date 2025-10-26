@@ -16,7 +16,7 @@ router.use(auth);
 // Tạo nhóm mới
 router.post('/', async (req, res) => {
   try {
-    const { name, description, group_photo_url } = req.body;
+    const { name, description } = req.body; // Bỏ group_photo_url - chỉ lưu trong Firebase
     const creator_id = req.user.id;
     
     if (!name) {
@@ -29,7 +29,6 @@ router.post('/', async (req, res) => {
     const result = await Group.create({
       name: name.trim(),
       description: description?.trim(),
-      group_photo_url,
       creator_id
     });
     
@@ -131,13 +130,12 @@ router.get('/:groupId', async (req, res) => {
 router.put('/:groupId', async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { name, description, group_photo_url } = req.body;
+    const { name, description } = req.body; // Bỏ group_photo_url - chỉ lưu trong Firebase
     const updatedBy = req.user.id;
     
     const updateData = {};
     if (name !== undefined) updateData.name = name.trim();
     if (description !== undefined) updateData.description = description?.trim();
-    if (group_photo_url !== undefined) updateData.group_photo_url = group_photo_url;
     
     const result = await Group.update(parseInt(groupId), updateData, updatedBy);
     

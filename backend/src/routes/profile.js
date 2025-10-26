@@ -31,7 +31,8 @@ router.get('/status', verifyFirebaseToken, async (req, res) => {
       user: completed ? {
         display_name: user.display_name,
         tag: user.tag,
-        username: `${user.display_name}#${user.tag}`
+        username: `${user.display_name}#${user.tag}`,
+        avatar_url: user.avatar_url || null
       } : null
     });
   } catch (error) {
@@ -130,30 +131,28 @@ router.post('/complete', verifyFirebaseToken, async (req, res) => {
     // Get Firebase user info
     const firebaseUser = await admin.auth().getUser(userId);
     const email = firebaseUser.email;
-    const avatar_url = firebaseUser.photoURL || null;
+    const avatar_url = firebaseUser.photoURL || null; // Chỉ dùng cho Firebase
     
     // Check if user exists in MySQL
     let user = await User.findById(userId);
     
     if (!user) {
-      // Create new user in MySQL
+      // Create new user in MySQL (không lưu avatar - chỉ lưu trong Firebase)
       const result = await User.create({
         id: userId,
         email,
         display_name: displayName,
-        tag,
-        avatar_url
+        tag
       });
       
       if (!result.success) {
         return res.status(500).json(result);
       }
     } else {
-      // Update existing user
+      // Update existing user (không update avatar - chỉ lưu trong Firebase)
       const result = await User.updateProfile(userId, {
         display_name: displayName,
-        tag,
-        avatar_url: avatar_url || user.avatar_url
+        tag
       });
       
       if (!result.success) {

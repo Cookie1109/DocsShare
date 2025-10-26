@@ -26,11 +26,38 @@ router.post('/', async (req, res) => {
 
     console.log('🆕 Creating new group:', groupName, 'by user:', creatorId);
 
-    // Step 1: Create group in MySQL
+    // Step 0: Ensure user exists in MySQL (create if not)
+    const existingUser = await executeQuery(
+      `SELECT id FROM users WHERE id = ?`,
+      [creatorId]
+    );
+
+    if (!existingUser || existingUser.length === 0) {
+      // User doesn't exist in MySQL, create from Firebase data
+      console.log('⚠️ User not found in MySQL, creating from Firebase...');
+      const firebaseUser = await admin.auth().getUser(creatorId);
+      const firestoreUserDoc = await admin.firestore().collection('users').doc(creatorId).get();
+      const firestoreUserData = firestoreUserDoc.exists ? firestoreUserDoc.data() : {};
+      
+      // Không lưu avatar vào MySQL - chỉ lưu trong Firebase
+      await executeQuery(
+        `INSERT INTO users (id, email, display_name, tag, created_at, last_login_at)
+         VALUES (?, ?, ?, ?, NOW(), NOW())`,
+        [
+          creatorId,
+          firebaseUser.email || req.user.email,
+          firestoreUserData.displayName || firebaseUser.displayName || 'User',
+          firestoreUserData.userTag || '0000'
+        ]
+      );
+      console.log('✅ User created in MySQL:', creatorId);
+    }
+
+    // Step 1: Create group in MySQL (không lưu group_photo_url - chỉ lưu trong Firebase)
     const mysqlResultRaw = await executeQuery(
-      `INSERT INTO \`groups\` (name, description, group_photo_url, creator_id, created_at) 
-       VALUES (?, ?, ?, ?, NOW())`,
-      [groupName.trim(), null, groupPhotoUrl || null, creatorId]
+      `INSERT INTO \`groups\` (name, description, creator_id, created_at) 
+       VALUES (?, ?, ?, NOW())`,
+      [groupName.trim(), null, creatorId]
     );
 
     // Handle different result formats
@@ -66,10 +93,11 @@ router.post('/', async (req, res) => {
     });
     console.log('✅ Creator added as admin in Firestore');
 
-    // Step 5: Create mapping between MySQL and Firestore
+    // Step 5: Create mapping between MySQL and Firestore (or update if exists)
     await executeQuery(
       `INSERT INTO group_mapping (firestore_id, mysql_id, group_name, creator_id)
-       VALUES (?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE mysql_id = VALUES(mysql_id), group_name = VALUES(group_name)`,
       [firestoreGroupId, mysqlGroupId, groupName.trim(), creatorId]
     );
     console.log('✅ Mapping created:', firestoreGroupId, '→', mysqlGroupId);
@@ -195,7 +223,7 @@ router.get('/:firestoreGroupId/tags', async (req, res) => {
 
 /**
  * POST /api/firebase-groups/:firestoreGroupId/tags
- * Create tag for a Firebase group
+ * Create tag for a Firebase group - FIREBASE FIRST approach
  */
 router.post('/:firestoreGroupId/tags', async (req, res) => {
   try {
@@ -266,7 +294,7 @@ router.post('/:firestoreGroupId/tags', async (req, res) => {
       });
     }
 
-    // 4. Create the tag
+    // 4. Create the tag in MySQL FIRST to get ID
     const result = await executeQuery(
       `INSERT INTO tags (name, group_id, creator_id) VALUES (?, ?, ?)`,
       [name.trim(), mysqlGroupId, userId]
@@ -275,22 +303,36 @@ router.post('/:firestoreGroupId/tags', async (req, res) => {
     console.log('📝 Insert result:', result);
 
     // Handle different result formats - properly extract insertId
-    let insertId;
+    let tagId;
     if (Array.isArray(result) && result[0]) {
       // If result is array, check first element
-      insertId = result[0].insertId || result[0].id;
+      tagId = result[0].insertId || result[0].id;
     } else if (result.insertId) {
       // Direct insertId property
-      insertId = result.insertId;
+      tagId = result.insertId;
     } else {
       console.error('❌ Could not extract insertId from result:', result);
       throw new Error('Failed to get tag ID from database');
     }
     
-    console.log('✅ Tag created with ID:', insertId);
+    console.log('✅ Tag created in MySQL with ID:', tagId);
+    
+    // 5. IMMEDIATELY write to Firestore for real-time updates
+    const db = admin.firestore();
+    const tagData = {
+      id: tagId,
+      name: name.trim(),
+      groupId: firestoreGroupId, // Use Firestore ID
+      creatorId: userId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      color: req.body.color || 'bg-blue-500'
+    };
+    
+    await db.collection('tags').doc(tagId.toString()).set(tagData);
+    console.log('🔥 Tag synced to Firestore IMMEDIATELY:', tagId);
     
     const newTag = {
-      id: insertId,
+      id: tagId,
       name: name.trim(),
       group_id: mysqlGroupId,
       creator_id: userId,

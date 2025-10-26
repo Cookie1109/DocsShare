@@ -21,6 +21,10 @@ const firebaseGroupRoutes = require('./src/routes/firebaseGroups');
 const firebaseUserRoutes = require('./src/routes/firebaseUsers');
 const invitationRoutes = require('./src/routes/invitations');
 const profileRoutes = require('./src/routes/profile');
+const syncRoutes = require('./src/routes/sync');
+
+// Import Sync Service
+const syncService = require('./src/config/syncService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -166,6 +170,13 @@ try {
   console.error('❌ Error loading profile routes:', error.message);
 }
 
+try {
+  app.use('/api/sync', syncRoutes);
+  console.log('✅ Sync routes loaded');
+} catch (error) {
+  console.error('❌ Error loading sync routes:', error.message);
+}
+
 console.log('📝 All routes loading completed');
 
 // Simple test endpoint
@@ -235,10 +246,24 @@ const startServer = async () => {
       console.error('⚠️  Some features may not work properly without database');
     }
     
+    // Initialize Sync Service
+    if (dbConnected) {
+      try {
+        console.log('\n🔄 Initializing Sync Service...');
+        const syncResult = await syncService.initialize();
+        console.log(`✅ Sync Service initialized with ${syncResult.listenersCount} listeners`);
+        console.log('📡 Real-time sync: Firebase ↔️ MySQL is now active\n');
+      } catch (syncError) {
+        console.error('❌ Failed to initialize Sync Service:', syncError.message);
+        console.error('⚠️  Server will continue without real-time sync');
+      }
+    }
+    
     const server = app.listen(PORT, '127.0.0.1', () => {
       console.log(`🚀 DocsShare API đang chạy tại port ${PORT}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
       console.log(`📊 Database Status: ${dbConnected ? '✅ Connected' : '❌ Disconnected'}`);
+      console.log(`📊 Sync Dashboard: http://localhost:${PORT}/api/sync/dashboard`);
       console.log('🔄 Server is now listening for requests...');
       
       // Add heartbeat to keep server alive and show it's working
@@ -278,6 +303,19 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Reason:', reason);
   // Don't exit immediately - log and continue
   console.error('⚠️  Server continuing despite unhandled rejection...');
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 SIGTERM received, shutting down gracefully...');
+  await syncService.shutdown();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('\n🛑 SIGINT received, shutting down gracefully...');
+  await syncService.shutdown();
+  process.exit(0);
 });
 
 startServer();

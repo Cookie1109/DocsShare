@@ -73,14 +73,20 @@ router.post('/:invitationId/accept', async (req, res) => {
 
     const invitation = invitations[0];
 
-    // 2. Add user to group members
+    // 2. Delete old invitations for this group and user
+    await executeQuery(
+      `DELETE FROM group_invitations WHERE group_id = ? AND invitee_id = ? AND status != 'pending'`,
+      [invitation.group_id, userId]
+    );
+
+    // 3. Add user to group members
     await executeQuery(
       `INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'member')
        ON DUPLICATE KEY UPDATE role = role`,
       [invitation.group_id, userId]
     );
 
-    // 3. Update invitation status
+    // 4. Update invitation status
     await executeQuery(
       `UPDATE group_invitations SET status = 'accepted', updated_at = NOW() WHERE id = ?`,
       [invitationId]
@@ -127,12 +133,24 @@ router.post('/:invitationId/accept', async (req, res) => {
       }
       
       // Add to Firestore group_members with correct Firestore group ID
-      await db.collection('group_members').doc(`${userId}_${firestoreGroupId}`).set({
-        groupId: firestoreGroupId,
-        userId: userId,
-        role: 'member',
-        joinedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
+      // Check if membership already exists
+      const membershipQuery = await db.collection('group_members')
+        .where('groupId', '==', firestoreGroupId)
+        .where('userId', '==', userId)
+        .get();
+      
+      if (membershipQuery.empty) {
+        // Create new membership
+        await db.collection('group_members').add({
+          groupId: firestoreGroupId,
+          userId: userId,
+          role: 'member',
+          joinedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`✅ Added user ${userId} to Firestore group ${firestoreGroupId}`);
+      } else {
+        console.log(`⚠️ User ${userId} already in Firestore group ${firestoreGroupId}`);
+      }
       
       // Create system message in messages collection with correct Firestore group ID
       await db.collection('groups').doc(firestoreGroupId).collection('messages').add({
@@ -155,7 +173,9 @@ router.post('/:invitationId/accept', async (req, res) => {
       
       console.log(`✅ Created system message for ${userName} joining Firestore group ${firestoreGroupId} (MySQL group ${invitation.group_id})`);
     } catch (firestoreError) {
-      console.warn('Failed to update Firestore:', firestoreError);
+      console.error('❌ Firebase sync failed during invitation acceptance:', firestoreError);
+      console.error('⚠️ DATA MISMATCH: Member added to MySQL but may not be in Firebase!');
+      console.error(`   MySQL group_id: ${invitation.group_id}, User ID: ${userId}`);
       // Don't fail the request if Firestore update fails
     }
 
