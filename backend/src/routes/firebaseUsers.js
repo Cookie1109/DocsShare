@@ -172,7 +172,15 @@ router.post('/invite', async (req, res) => {
         continue; // Skip if already member
       }
 
-      // Check if invitation already exists
+      // Delete old invitations (accepted, declined, or pending) to allow re-invite after kick
+      await executeQuery(
+        `DELETE FROM group_invitations 
+         WHERE group_id = ? AND invitee_id = ?`,
+        [mysqlGroupId, userId]
+      );
+      console.log(`🗑️ Deleted old invitations for user ${userId} in group ${mysqlGroupId}`);
+
+      // Check if invitation already exists (after deletion, should be none)
       const existingInvitationResult = await executeQuery(
         `SELECT * FROM group_invitations 
          WHERE group_id = ? AND invitee_id = ? AND status = 'pending'`,
@@ -182,7 +190,7 @@ router.post('/invite', async (req, res) => {
       const existingInvitation = Array.isArray(existingInvitationResult[0]) ? existingInvitationResult[0] : (Array.isArray(existingInvitationResult) ? existingInvitationResult : [existingInvitationResult]);
 
       if (existingInvitation.length > 0) {
-        continue; // Skip if already invited
+        continue; // Skip if already invited (shouldn't happen after deletion)
       }
 
       // Create invitation in MySQL
@@ -207,7 +215,23 @@ router.post('/invite', async (req, res) => {
       // Also create in Firestore for real-time notifications
       try {
         const admin = require('../config/firebaseAdmin');
-        await admin.firestore().collection('group_invitations').add({
+        const db = admin.firestore();
+        
+        // Delete old Firestore invitations first (to allow re-invite after kick)
+        const oldInvitationsQuery = await db.collection('group_invitations')
+          .where('group_id', '==', mysqlGroupId.toString())
+          .where('invitee_id', '==', userId)
+          .get();
+        
+        const deletePromises = oldInvitationsQuery.docs.map(doc => doc.ref.delete());
+        await Promise.all(deletePromises);
+        
+        if (oldInvitationsQuery.size > 0) {
+          console.log(`🗑️ Deleted ${oldInvitationsQuery.size} old Firestore invitation(s) for user ${userId}`);
+        }
+        
+        // Create new invitation
+        await db.collection('group_invitations').add({
           invitation_id: result.insertId,
           group_id: mysqlGroupId.toString(),
           inviter_id: inviterId,
