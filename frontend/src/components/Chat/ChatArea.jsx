@@ -3,7 +3,6 @@ import {
   Upload, 
   File, 
   Download, 
-  Eye, 
   Users, 
   Settings, 
   Paperclip,
@@ -1055,20 +1054,36 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
 
             // File message (existing code)
             const doc = item;
+            const uploaderDisplayName = doc.uploaderTag 
+              ? `${doc.uploadedBy}#${doc.uploaderTag}`
+              : doc.uploadedBy;
+            
             return (
               <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3 group relative">
                 {/* Message with Avatar */}
-                <div className={`flex items-end gap-2 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className={`flex items-end gap-3 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
                 {/* Avatar */}
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
-                  {doc.isOwn ? 'M' : doc.uploadedBy?.charAt(0) || 'U'}
-                </div>
+                {doc.uploaderAvatar ? (
+                  <img 
+                    src={doc.uploaderAvatar} 
+                    alt={doc.uploadedBy}
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
+                    {doc.uploadedBy?.charAt(0) || 'U'}
+                  </div>
+                )}
                 
                 {/* Message Content */}
                 <div className="flex flex-col max-w-[90%] sm:max-w-md md:max-w-lg lg:max-w-xl">
-                  {/* Sender name (for others' files) */}
+                  {/* Sender name and time */}
                   {!doc.isOwn && (
-                    <p className="text-xs text-gray-500 mb-1 ml-2">{doc.uploadedBy}</p>
+                    <div className="flex items-center gap-2 mb-1 ml-2">
+                      <span className="text-xs font-medium text-gray-700">{uploaderDisplayName}</span>
+                      <span className="text-xs text-gray-400">•</span>
+                      <span className="text-xs text-gray-500">{formatTime(doc.uploadedAt)}</span>
+                    </div>
                   )}
                   
                   {/* File Message Bubble */}
@@ -1179,27 +1194,20 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                   </div>
                 </div>
                 
-                {/* File Stats - Right aligned for own files */}
-                <div className={`flex items-center text-xs mt-2 ${doc.isOwn ? 'justify-end text-gray-500' : 'text-gray-500'}`}>
-                  <span className="flex items-center mr-3">
-                    <Eye className="h-3 w-3 mr-1" />
-                    {doc.views}
-                  </span>
-                  <span className="flex items-center">
+                {/* File Stats - Right aligned for own files, with timestamp */}
+                <div className={`flex items-center justify-between text-xs mt-2 ${
+                  doc.isOwn ? 'flex-row-reverse' : 'flex-row'
+                }`}>
+                  <span className="flex items-center text-gray-500">
                     <Download className="h-3 w-3 mr-1" />
                     {doc.downloads}
                   </span>
-
-                    </div>
+                  {doc.isOwn && (
+                    <span className="text-gray-400">{formatTime(doc.uploadedAt)}</span>
+                  )}
+                </div>
                   </div>
                 </div>
-                
-
-                
-                {/* Timestamp for own files */}
-                {doc.isOwn && (
-                  <p className="text-xs text-gray-500 mt-1 text-right">{formatTime(doc.uploadedAt)}</p>
-                )}
               </div>
             </div>
             ); // Close file message return

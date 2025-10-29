@@ -4,7 +4,7 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 // Custom hook for managing group files
-export const useGroupFiles = (selectedGroup, onTagsNeedReload = null) => {
+export const useGroupFiles = (selectedGroup) => {
   const [groupFiles, setGroupFiles] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -21,6 +21,9 @@ export const useGroupFiles = (selectedGroup, onTagsNeedReload = null) => {
       size: `${(apiFile.size / 1024 / 1024).toFixed(1)} MB`,
       type: apiFile.name.split('.').pop() || 'unknown',
       uploadedBy: apiFile.uploader.name || apiFile.uploader.email.split('@')[0],
+      uploaderTag: apiFile.uploader.tag,
+      uploaderAvatar: apiFile.uploader.avatar,
+      uploaderUid: apiFile.uploader.uid,
       uploadedAt: apiFile.createdAt,
       downloads: apiFile.downloadCount || 0,
       views: 0,
@@ -98,14 +101,6 @@ export const useGroupFiles = (selectedGroup, onTagsNeedReload = null) => {
       const failCount = results.length - successCount;
       
       if (successCount > 0) {
-        // Reload tags first if callback provided
-        if (onTagsNeedReload) {
-          console.log('🏷️ Reloading tags before files...');
-          await onTagsNeedReload();
-          // Small delay to ensure tags are ready
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
         // Refresh files for the group
         await fetchFiles(groupId);
         console.log(`✅ Successfully uploaded ${successCount} file(s)`);
@@ -136,7 +131,7 @@ export const useGroupFiles = (selectedGroup, onTagsNeedReload = null) => {
     } finally {
       setLoading(false);
     }
-  }, [fetchFiles, onTagsNeedReload]);
+  }, [fetchFiles]);
 
   // Auto-fetch files when selectedGroup changes
   useEffect(() => {

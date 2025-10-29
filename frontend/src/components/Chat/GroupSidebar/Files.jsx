@@ -1,125 +1,192 @@
-import { useState, useMemo } from 'react';
-import { Search, Filter, Download, Trash2, FileText, File, Image, Video, Music, Archive } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Upload, Search, Filter, Download, Eye, Trash2, 
+  FileText, File, FileImage, FileSpreadsheet, FileCode, 
+  Archive, Paperclip, MoreVertical, Calendar, User,
+  SortAsc, SortDesc, X, Loader, Tag as TagIcon
+} from 'lucide-react';
+import { useGroupFiles } from '../../../hooks/useGroupFiles';
+import tagsService from '../../../services/tagsService';
+import { auth } from '../../../config/firebase';
 
-const Files = ({ group, documents, availableTags, currentUser, isAdmin }) => {
+const Files = ({ groupId, isAdmin }) => {
+  const { files, loading: filesLoading, deleteFile, refreshFiles } = useGroupFiles(groupId);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTag, setSelectedTag] = useState('');
-  const [sortBy, setSortBy] = useState('newest'); // newest, oldest, name, size
+  const [sortBy, setSortBy] = useState('date'); // 'date', 'name', 'size'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [tags, setTags] = useState([]);
+  const [selectedTagId, setSelectedTagId] = useState(null);
+  const [loadingTags, setLoadingTags] = useState(false);
+
+  useEffect(() => {
+    if (groupId && refreshFiles) {
+      refreshFiles();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId]);
+
+  // Load tags for the group
+  useEffect(() => {
+    const loadTags = async () => {
+      if (!groupId) return;
+      
+      setLoadingTags(true);
+      try {
+        const groupTags = await tagsService.getGroupTags(groupId);
+        setTags(groupTags || []);
+      } catch (error) {
+        console.error('Error loading tags:', error);
+      } finally {
+        setLoadingTags(false);
+      }
+    };
+    
+    loadTags();
+  }, [groupId]);
 
   // Get file icon based on type
   const getFileIcon = (type) => {
-    switch (type?.toLowerCase()) {
-      case 'pdf':
-      case 'doc':
-      case 'docx':
-      case 'txt':
-        return <FileText className="h-6 w-6 text-red-500" />;
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-      case 'webp':
-        return <Image className="h-6 w-6 text-blue-500" />;
-      case 'mp4':
-      case 'avi':
-      case 'mov':
-      case 'wmv':
-        return <Video className="h-6 w-6 text-purple-500" />;
-      case 'mp3':
-      case 'wav':
-      case 'flac':
-        return <Music className="h-6 w-6 text-green-500" />;
-      case 'zip':
-      case 'rar':
-      case '7z':
-        return <Archive className="h-6 w-6 text-orange-500" />;
-      default:
-        return <File className="h-6 w-6 text-gray-500" />;
+    const lowerType = type.toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(lowerType)) {
+      return <FileImage className="h-5 w-5 text-orange-500" />;
+    } else if (['pdf', 'doc', 'docx', 'txt'].includes(lowerType)) {
+      return <FileText className="h-5 w-5 text-orange-600" />;
+    } else if (['xls', 'xlsx', 'csv'].includes(lowerType)) {
+      return <FileSpreadsheet className="h-5 w-5 text-green-600" />;
+    } else if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'py'].includes(lowerType)) {
+      return <FileCode className="h-5 w-5 text-blue-600" />;
+    } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(lowerType)) {
+      return <Archive className="h-5 w-5 text-purple-600" />;
     }
+    return <File className="h-5 w-5 text-gray-500" />;
   };
 
-  // Format file size
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  // Filter and sort documents
-  const filteredDocuments = useMemo(() => {
-    let filtered = documents.filter(doc => {
-      const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesTag = !selectedTag || doc.tags?.includes(selectedTag);
+  // Filter and sort files
+  const filteredFiles = (files || [])
+    .filter(file => {
+      // Search filter
+      const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           file.uploadedBy.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Tag filter
+      const matchesTag = !selectedTagId || 
+                        (file.tags && file.tags.includes(selectedTagId));
+      
       return matchesSearch && matchesTag;
-    });
-
-    // Sort documents
-    filtered.sort((a, b) => {
-      switch (sortBy) {
-        case 'oldest':
-          return new Date(a.uploadedAt) - new Date(b.uploadedAt);
-        case 'name':
-          return a.name.localeCompare(b.name);
-        case 'size':
-          return (b.sizeBytes || 0) - (a.sizeBytes || 0);
-        case 'newest':
-        default:
-          return new Date(b.uploadedAt) - new Date(a.uploadedAt);
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+      
+      if (sortBy === 'name') {
+        comparison = a.name.localeCompare(b.name);
+      } else if (sortBy === 'size') {
+        const sizeA = parseFloat(a.size);
+        const sizeB = parseFloat(b.size);
+        comparison = sizeA - sizeB;
+      } else if (sortBy === 'date') {
+        comparison = new Date(a.uploadedAt) - new Date(b.uploadedAt);
       }
+      
+      return sortOrder === 'asc' ? comparison : -comparison;
     });
 
-    return filtered;
-  }, [documents, searchQuery, selectedTag, sortBy]);
+  const handleDownload = (file) => {
+    window.open(file.url, '_blank');
+  };
 
-  const handleDownload = async (doc) => {
-    console.log('🔽 Downloading file:', doc.name);
+  const handleDeleteClick = (file) => {
+    setSelectedFile(file);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!selectedFile) return;
     
+    setIsDeleting(true);
     try {
-      // Fetch file as blob to bypass CORS download name restriction
-      const response = await fetch(doc.url);
+      await deleteFile(groupId, selectedFile.id);
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      // Show success notification
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-orange-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+      notification.innerHTML = `
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <span>Đã xóa file thành công</span>
+      `;
+      document.body.appendChild(notification);
       
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
+      setTimeout(() => {
+        notification.remove();
+      }, 3000);
       
-      // Create and trigger download link
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = doc.name;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Cleanup
-      window.URL.revokeObjectURL(blobUrl);
-      
-      console.log('✅ Download completed for:', doc.name);
+      setShowDeleteModal(false);
+      setSelectedFile(null);
     } catch (error) {
-      console.error('❌ Download failed:', error);
+      console.error('Error deleting file:', error);
+      alert('Không thể xóa file');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleDelete = (doc) => {
-    if (window.confirm(`Bạn có chắc muốn xóa file "${doc.name}"?`)) {
-      // TODO: Implement delete functionality
-      console.log('Delete file:', doc);
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now - date);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Hôm nay';
+    if (diffDays === 1) return 'Hôm qua';
+    if (diffDays < 7) return `${diffDays} ngày trước`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} tuần trước`;
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)} tháng trước`;
+    return date.toLocaleDateString('vi-VN');
+  };
+
+  const toggleSort = (newSortBy) => {
+    if (sortBy === newSortBy) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(newSortBy);
+      setSortOrder('desc');
     }
   };
 
-  const getTagInfo = (tagId) => {
-    return availableTags.find(tag => tag.id === tagId);
+  // Helper function to determine if a color is light or dark
+  const isLightColor = (color) => {
+    const hex = color.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness > 155;
   };
+
+  if (filesLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader className="h-8 w-8 text-orange-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Search and Filter */}
-      <div className="space-y-3">
-        {/* Search */}
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Header with Search and Filters */}
+      <div className="p-4 border-b border-gray-200 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-semibold text-gray-900 text-base flex items-center gap-2">
+            <Paperclip className="h-5 w-5 text-orange-500" />
+            File đã chia sẻ ({filteredFiles.length})
+          </h3>
+        </div>
+
+        {/* Search Bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
@@ -127,155 +194,259 @@ const Files = ({ group, documents, availableTags, currentUser, isAdmin }) => {
             placeholder="Tìm kiếm file..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-orange-400 outline-none text-sm"
           />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
-        {/* Filters */}
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <select
-              value={selectedTag}
-              onChange={(e) => setSelectedTag(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
+        {/* Tag Filter */}
+        {tags.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-2">
+            <TagIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <button
+              onClick={() => setSelectedTagId(null)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                !selectedTagId
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
             >
-              <option value="">Tất cả tag</option>
-              {availableTags.map((tag) => (
-                <option key={tag.id} value={tag.id}>
-                  {tag.name}
-                </option>
-              ))}
-            </select>
+              Tất cả ({files?.length || 0})
+            </button>
+            {tags.map((tag) => {
+              const fileCount = (files || []).filter(f => f.tags && f.tags.includes(tag.id)).length;
+              const isActive = selectedTagId === tag.id;
+              
+              return (
+                <button
+                  key={tag.id}
+                  onClick={() => setSelectedTagId(tag.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all border ${
+                    isActive
+                      ? 'shadow-md border-gray-300'
+                      : 'border-transparent hover:shadow-sm'
+                  }`}
+                  style={{
+                    backgroundColor: isActive ? tag.color : `${tag.color}20`,
+                    color: isActive ? '#1f2937' : tag.color,
+                    fontWeight: isActive ? '600' : '500'
+                  }}
+                >
+                  {tag.name} ({fileCount})
+                </button>
+              );
+            })}
           </div>
+        )}
 
-          <div className="flex-1">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
+        {/* Sort Options */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 flex-shrink-0">Sắp xếp:</span>
+          <div className="flex gap-1 flex-wrap">
+            <button
+              onClick={() => toggleSort('date')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                sortBy === 'date'
+                  ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent'
+              }`}
             >
-              <option value="newest">Mới nhất</option>
-              <option value="oldest">Cũ nhất</option>
-              <option value="name">Tên A-Z</option>
-              <option value="size">Kích thước</option>
-            </select>
+              <Calendar className="h-3 w-3" />
+              Ngày
+              {sortBy === 'date' && (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
+            </button>
+            <button
+              onClick={() => toggleSort('name')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                sortBy === 'name'
+                  ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent'
+              }`}
+            >
+              Tên
+              {sortBy === 'name' && (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
+            </button>
+            <button
+              onClick={() => toggleSort('size')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                sortBy === 'size'
+                  ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent'
+              }`}
+            >
+              Dung lượng
+              {sortBy === 'size' && (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
+            </button>
           </div>
         </div>
       </div>
 
       {/* Files List */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-medium text-gray-700">
-            File ({filteredDocuments.length})
-          </h4>
-          {selectedTag && (
-            <button
-              onClick={() => setSelectedTag('')}
-              className="text-xs text-green-600 hover:text-green-700"
-            >
-              Xóa bộ lọc
-            </button>
-          )}
-        </div>
-
-        {filteredDocuments.length > 0 ? (
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {filteredDocuments.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100"
-              >
-                {/* File Icon */}
-                <div className="flex-shrink-0">
-                  {getFileIcon(doc.type)}
-                </div>
-
-                {/* File Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {doc.name}
-                  </p>
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
-                    <span>{formatFileSize(doc.sizeBytes || 0)}</span>
-                    <span>•</span>
-                    <span>{new Date(doc.uploadedAt).toLocaleDateString('vi-VN')}</span>
-                    <span>•</span>
-                    <span>{doc.uploadedBy === currentUser?.id ? 'Bạn' : 'Trưởng nhóm'}</span>
-                  </div>
-                  
-                  {/* Tags */}
-                  {doc.tags && doc.tags.length > 0 && (
-                    <div className="flex gap-1 mt-1">
-                      {doc.tags.map((tagId) => {
-                        const tag = getTagInfo(tagId);
-                        return tag ? (
-                          <span
-                            key={tagId}
-                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                            style={{
-                              backgroundColor: `${tag.color}20`,
-                              color: tag.color,
-                            }}
-                          >
-                            {tag.name}
-                          </span>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleDownload(doc)}
-                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                    title="Tải xuống"
-                  >
-                    <Download className="h-4 w-4" />
-                  </button>
-                  
-                  {(isAdmin || doc.uploadedBy === currentUser?.id) && (
-                    <button
-                      onClick={() => handleDelete(doc)}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                      title="Xóa file"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+      <div className="flex-1 overflow-y-auto">
+        {filteredFiles.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 px-4">
+            <div className="h-20 w-20 rounded-full bg-orange-50 flex items-center justify-center mb-4">
+              <Paperclip className="h-10 w-10 text-orange-300" />
+            </div>
+            <p className="text-gray-500 text-sm text-center">
+              {searchQuery ? 'Không tìm thấy file nào' : 'Chưa có file nào được chia sẻ'}
+            </p>
           </div>
         ) : (
-          <div className="text-center py-8">
-            {searchQuery || selectedTag ? (
-              <>
-                <Search className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">Không tìm thấy file nào</p>
-                {(searchQuery || selectedTag) && (
-                  <button
-                    onClick={() => {
-                      setSearchQuery('');
-                      setSelectedTag('');
-                    }}
-                    className="text-sm text-green-600 hover:text-green-700 mt-1"
-                  >
-                    Xóa bộ lọc
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                <FileText className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">Chưa có file nào được chia sẻ</p>
-              </>
-            )}
+          <div className="p-4 space-y-2">
+            {filteredFiles.map((file) => {
+              const currentUserId = auth.currentUser?.uid;
+              const canDelete = isAdmin || file.isOwn;
+
+              return (
+                <div
+                  key={file.id}
+                  className="group bg-white border border-gray-200 rounded-xl p-3 hover:shadow-md hover:border-orange-300 transition-all"
+                >
+                  <div className="flex items-start gap-3">
+                    {/* File Icon */}
+                    <div className="h-10 w-10 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0 group-hover:bg-orange-100 transition-colors">
+                      {getFileIcon(file.type)}
+                    </div>
+
+                    {/* File Info */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-gray-900 text-sm truncate group-hover:text-orange-600 transition-colors">
+                        {file.name}
+                      </h4>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          {file.uploadedBy}
+                        </span>
+                        <span>•</span>
+                        <span>{file.size}</span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(file.uploadedAt)}
+                        </span>
+                      </div>
+                      {file.downloads > 0 && (
+                        <div className="flex items-center gap-1 mt-1 text-xs text-orange-600">
+                          <Download className="h-3 w-3" />
+                          <span>{file.downloads} lượt tải</span>
+                        </div>
+                      )}
+                      {/* Tags */}
+                      {file.tags && file.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {file.tags.map((tagId) => {
+                            const tag = tags.find(t => t.id === tagId);
+                            if (!tag) return null;
+                            return (
+                              <span
+                                key={tagId}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium"
+                                style={{
+                                  backgroundColor: `${tag.color}20`,
+                                  color: tag.color,
+                                  border: `1px solid ${tag.color}40`
+                                }}
+                              >
+                                <TagIcon className="h-2.5 w-2.5 mr-1" />
+                                {tag.name}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleDownload(file)}
+                        className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                        title="Tải xuống"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={() => handleDeleteClick(file)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Xóa file"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && selectedFile && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-scale-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="h-6 w-6 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900">Xóa file</h3>
+                <p className="text-sm text-gray-500">Hành động này không thể hoàn tác</p>
+              </div>
+            </div>
+            
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                {getFileIcon(selectedFile.type)}
+                <span className="text-sm font-medium text-gray-900 truncate">{selectedFile.name}</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">{selectedFile.size}</p>
+            </div>
+            
+            <p className="text-gray-700 mb-6">
+              Bạn có chắc chắn muốn xóa file này không?
+            </p>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setSelectedFile(null);
+                }}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl transition-colors disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader className="h-4 w-4 animate-spin" />
+                    Đang xóa...
+                  </>
+                ) : (
+                  'Xóa file'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

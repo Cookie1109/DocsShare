@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Search, Crown, UserX, MoreVertical, User } from 'lucide-react';
+import PendingMembers from './PendingMembers';
 
 const Members = ({ group, currentUser, isAdmin }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,6 +59,16 @@ const Members = ({ group, currentUser, isAdmin }) => {
 
   return (
     <div className="p-4 space-y-4">
+      {/* Pending Members Section (Admin Only) */}
+      {isAdmin && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium text-gray-700">
+            Chờ phê duyệt
+          </h4>
+          <PendingMembers groupId={group.id} isAdmin={isAdmin} />
+        </div>
+      )}
+
       {/* Search Members */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />

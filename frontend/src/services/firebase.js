@@ -443,7 +443,32 @@ export const addGroupMember = async (groupId, userId, role = 'member') => {
 // Remove member from group
 export const removeGroupMember = async (membershipId) => {
   try {
-    await deleteDoc(doc(db, 'group_members', membershipId));
+    // Get member info first to extract groupId and userId
+    const memberDoc = await getDoc(doc(db, 'group_members', membershipId));
+    if (!memberDoc.exists()) {
+      return { success: false, error: 'Member not found' };
+    }
+    
+    const memberData = memberDoc.data();
+    const { groupId, userId } = memberData;
+    
+    // Call backend API to remove member (handles both Firebase and MySQL)
+    // Backend accepts Firestore group ID and will convert if needed
+    const token = await auth.currentUser.getIdToken();
+    
+    const response = await fetch(`http://localhost:5000/api/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to remove member');
+    }
+    
     return { success: true };
   } catch (error) {
     console.error('Error removing group member:', error);
@@ -476,12 +501,50 @@ export const getUserRoleInGroup = async (groupId, userId) => {
 // Update member role in group
 export const updateMemberRole = async (membershipId, newRole) => {
   try {
+    console.log(`🔄 Updating role for membership ${membershipId} to ${newRole}`);
+    
+    // Step 1: Update Firebase first for real-time
     await updateDoc(doc(db, 'group_members', membershipId), {
-      role: newRole
+      role: newRole,
+      updatedAt: new Date().toISOString()
     });
+    
+    console.log('✅ Firebase role updated successfully');
+    
+    // Step 2: Get member data to sync with backend
+    const memberDoc = await getDoc(doc(db, 'group_members', membershipId));
+    if (!memberDoc.exists()) {
+      throw new Error('Member not found');
+    }
+    
+    const memberData = memberDoc.data();
+    const { groupId, userId } = memberData;
+    
+    // Step 3: Update MySQL via backend API
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch(`http://localhost:5000/api/groups/${groupId}/members/${userId}/role`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ role: newRole })
+      });
+      
+      if (!response.ok) {
+        console.warn('⚠️ Failed to update MySQL, but Firebase updated successfully');
+      } else {
+        console.log('✅ MySQL role updated successfully');
+      }
+    } catch (apiError) {
+      console.warn('⚠️ Backend API error:', apiError.message);
+      // Don't fail the operation if backend fails, Firebase is updated
+    }
+    
     return { success: true };
   } catch (error) {
-    console.error('Error updating member role:', error);
+    console.error('❌ Error updating member role:', error);
     return { success: false, error: error.message };
   }
 };

@@ -97,7 +97,8 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
                      email.includes(searchName);
           }
           
-          if (matches) {
+          // Don't include current user in search results
+          if (matches && doc.id !== auth.currentUser?.uid) {
             results.push({
               uid: doc.id,
               displayName: userData.displayName || 'Unknown',
@@ -159,16 +160,23 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
 
       const data = await response.json();
       
-      setSuccess(`Đã gửi lời mời đến ${selectedUsers.length} người dùng!`);
+      // Close modal immediately
+      onClose();
       
-      // Reset after 2 seconds
+      // Show notification in top-right corner
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-purple-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+      notification.innerHTML = `
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <span>Đã gửi lời mời đến ${selectedUsers.length} người dùng</span>
+      `;
+      document.body.appendChild(notification);
+      
       setTimeout(() => {
-        setSelectedUsers([]);
-        setSearchQuery('');
-        setSearchResults([]);
-        setSuccess('');
-        onClose();
-      }, 2000);
+        notification.remove();
+      }, 3000);
 
     } catch (err) {
       console.error('Send invitation error:', err);
@@ -252,8 +260,16 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
                     >
                       <div className="flex items-center space-x-3 flex-1 min-w-0">
                         {/* Avatar */}
-                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                          {user.displayName.charAt(0).toUpperCase()}
+                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 overflow-hidden">
+                          {user.photoURL ? (
+                            <img 
+                              src={user.photoURL} 
+                              alt={user.displayName}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span>{user.displayName.charAt(0).toUpperCase()}</span>
+                          )}
                         </div>
                         
                         {/* User Info */}

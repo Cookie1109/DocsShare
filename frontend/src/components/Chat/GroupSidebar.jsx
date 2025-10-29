@@ -4,12 +4,15 @@ import {
   Search, Filter, FileText, Hash, Edit2, Trash2, LogOut,
   UserPlus, Shield, Eye, Download, Calendar, Tag, File,
   FileImage, FileSpreadsheet, FileCode, Archive, Paperclip,
-  Plus, Image as ImageIcon, Check, Loader
+  Plus, Image as ImageIcon, Check, Loader, Clock
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
 import AddMemberModal from './AddMemberModal';
-import { getFirestore, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import GroupSettings from './GroupSidebar/GroupSettings';
+import PendingMembers from './GroupSidebar/PendingMembers';
+import Files from './GroupSidebar/Files';
+import { getFirestore, doc, onSnapshot, updateDoc, collection, query, where } from 'firebase/firestore';
 import { auth } from '../../config/firebase';
 
 const GroupSidebar = ({ group, onClose }) => {
@@ -20,7 +23,9 @@ const GroupSidebar = ({ group, onClose }) => {
   const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
   const [showLeaveGroupModal, setShowLeaveGroupModal] = useState(false);
   const [showEditGroupModal, setShowEditGroupModal] = useState(false);
+  const [showRoleChangeModal, setShowRoleChangeModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
+  const [roleChangeData, setRoleChangeData] = useState(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
   
@@ -31,6 +36,9 @@ const GroupSidebar = ({ group, onClose }) => {
   
   // Real-time group data
   const [realtimeGroupData, setRealtimeGroupData] = useState(null);
+  
+  // Pending members count
+  const [pendingMembersCount, setPendingMembersCount] = useState(0);
   
   const { userGroups, selectedGroup, groupMembers, selectGroup, addMemberToGroup, removeMemberFromGroup, updateMemberRoleInGroup, checkUserRole, deleteGroup, leaveGroup, user } = useAuth();
 
@@ -141,6 +149,28 @@ const GroupSidebar = ({ group, onClose }) => {
     return userMembership?.role || null;
   };
 
+  // 🔥 Real-time listener for pending members count
+  useEffect(() => {
+    if (!selectedGroup || !isUserAdmin()) {
+      setPendingMembersCount(0);
+      return;
+    }
+
+    const db = getFirestore();
+    
+    const pendingQuery = query(
+      collection(db, 'pending_members'),
+      where('groupId', '==', selectedGroup),
+      where('status', '==', 'pending')
+    );
+
+    const unsubscribe = onSnapshot(pendingQuery, (snapshot) => {
+      setPendingMembersCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, [selectedGroup, user?.uid, groupMembers]);
+
   const groupFiles = [
     { 
       id: 1, 
@@ -198,6 +228,7 @@ const GroupSidebar = ({ group, onClose }) => {
 
   const tabs = [
     { id: 'members', label: 'Thành viên', icon: Users, count: groupMembers?.length || 0 },
+    ...(isUserAdmin() ? [{ id: 'pending', label: 'Chờ', icon: Clock, count: pendingMembersCount }] : []),
     { id: 'files', label: 'File', icon: FileText, count: groupFiles.length },
     { id: 'settings', label: 'Cài đặt', icon: Settings, count: null }
   ];
@@ -220,13 +251,52 @@ const GroupSidebar = ({ group, onClose }) => {
     try {
       const result = await removeMemberFromGroup(selectedMember.membershipId, selectedGroup);
       if (result.success) {
-        alert(`Đã xóa ${selectedMember.user.displayName} khỏi nhóm`);
+        // Show notification in top-right corner
+        const notification = document.createElement('div');
+        notification.className = 'fixed top-4 right-4 bg-purple-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+        notification.innerHTML = `
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          <span>Đã xóa ${selectedMember.user.displayName} khỏi nhóm</span>
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+          notification.remove();
+        }, 3000);
       } else {
-        alert(`Lỗi: ${result.error}`);
+        // Show error notification
+        const notification = document.createElement('div');
+        notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+        notification.innerHTML = `
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+          <span>Lỗi: ${result.error}</span>
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+          notification.remove();
+        }, 3000);
       }
     } catch (error) {
       console.error('Error removing member:', error);
-      alert('Có lỗi xảy ra khi xóa thành viên');
+      // Show error notification
+      const notification = document.createElement('div');
+      notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+      notification.innerHTML = `
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+        <span>Có lỗi xảy ra khi xóa thành viên</span>
+      `;
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.remove();
+      }, 3000);
     } finally {
       setShowKickModal(false);
       setSelectedMember(null);
@@ -237,22 +307,47 @@ const GroupSidebar = ({ group, onClose }) => {
     if (!selectedGroup) return;
     
     const newRole = member.role === 'admin' ? 'member' : 'admin';
-    const confirm = window.confirm(
-      `Bạn có chắc muốn ${newRole === 'admin' ? 'thăng chức' : 'giáng chức'} ${member.user.displayName}?`
-    );
     
-    if (confirm) {
-      try {
-        const result = await updateMemberRoleInGroup(member.membershipId, newRole, selectedGroup);
-        if (result.success) {
-          alert(`Đã ${newRole === 'admin' ? 'thăng chức' : 'giáng chức'} ${member.user.displayName}`);
-        } else {
-          alert(`Lỗi: ${result.error}`);
-        }
-      } catch (error) {
-        console.error('Error updating member role:', error);
-        alert('Có lỗi xảy ra khi cập nhật quyền');
+    // Show modal instead of confirm
+    setRoleChangeData({ member, newRole });
+    setShowRoleChangeModal(true);
+  };
+
+  const confirmRoleChange = async () => {
+    if (!roleChangeData) return;
+    
+    const { member, newRole } = roleChangeData;
+    const actionText = newRole === 'admin' ? 'thăng chức' : 'giáng chức';
+    
+    try {
+      const result = await updateMemberRoleInGroup(member.membershipId, newRole, selectedGroup);
+      if (result.success) {
+        // Show success notification with color based on action
+        const notification = document.createElement('div');
+        const bgColor = newRole === 'admin' 
+          ? 'bg-blue-500' 
+          : 'bg-orange-500';
+        notification.className = `fixed top-4 right-4 ${bgColor} text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in`;
+        notification.innerHTML = `
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          <span>Đã ${actionText} ${member.user.displayName} thành ${newRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}</span>
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+          notification.remove();
+        }, 3000);
+      } else {
+        alert(`Lỗi: ${result.error}`);
       }
+    } catch (error) {
+      console.error('Error updating member role:', error);
+      alert('Có lỗi xảy ra khi cập nhật quyền');
+    } finally {
+      setShowRoleChangeModal(false);
+      setRoleChangeData(null);
     }
   };
 
@@ -508,11 +603,15 @@ const GroupSidebar = ({ group, onClose }) => {
         <div className="flex border-t border-emerald-400">
           {tabs.map((tab) => {
             const Icon = tab.icon;
+            const isPendingTab = tab.id === 'pending';
+            const showBadge = tab.count !== null && tab.count !== undefined;
+            const hasPendingCount = isPendingTab && tab.count > 0;
+            
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-sm font-medium transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-sm font-medium transition-colors relative ${
                   activeTab === tab.id
                     ? 'bg-white/20 text-white border-b-2 border-white'
                     : 'text-emerald-100 hover:text-white hover:bg-white/10'
@@ -520,8 +619,12 @@ const GroupSidebar = ({ group, onClose }) => {
               >
                 <Icon className="h-4 w-4" />
                 <span className="hidden sm:inline">{tab.label}</span>
-                {tab.count !== null && (
-                  <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-xs">
+                {showBadge && (
+                  <span className={`min-w-[20px] h-5 flex items-center justify-center px-1.5 rounded-full text-xs font-semibold ${
+                    hasPendingCount 
+                      ? 'bg-red-500 text-white shadow-lg shadow-red-500/50' 
+                      : 'bg-white/20 text-white'
+                  }`}>
                     {tab.count}
                   </span>
                 )}
@@ -596,7 +699,7 @@ const GroupSidebar = ({ group, onClose }) => {
                         {/* Change role button */}
                         <button
                           onClick={() => handleChangeRole(member)}
-                          className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                          className={`p-2 ${member.role === 'admin' ? 'text-orange-500 hover:bg-orange-50' : 'text-blue-500 hover:bg-blue-50'} rounded-lg transition-colors`}
                           title={member.role === 'admin' ? 'Giáng chức thành viên' : 'Thăng chức quản trị viên'}
                         >
                           <Shield className="h-4 w-4" />
@@ -619,148 +722,39 @@ const GroupSidebar = ({ group, onClose }) => {
           </div>
         )}
 
-        {activeTab === 'files' && (
-          <div className="flex-1 flex flex-col">
-            <div className="p-3 sm:p-4 border-b border-gray-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Files ({groupFiles.length})</h3>
+        {activeTab === 'pending' && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4">
+              <div className="mb-4">
+                <h3 className="font-semibold text-gray-900 text-base flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-yellow-500" />
+                  Thành viên chờ phê duyệt
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Danh sách thành viên đang chờ bạn phê duyệt để tham gia nhóm
+                </p>
               </div>
               
-              {/* Search & Filter */}
-              <div className="space-y-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Tìm tên file hoặc mô tả..."
-                    value={searchFiles}
-                    onChange={(e) => setSearchFiles(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none text-sm"
-                  />
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Filter className="h-4 w-4 text-gray-400" />
-                  <select
-                    value={fileFilter}
-                    onChange={(e) => setFileFilter(e.target.value)}
-                    className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none bg-white"
-                  >
-                    {availableTags.map((tag) => (
-                      <option key={tag} value={tag === 'Tất cả' ? 'all' : tag}>
-                        {tag}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-xs text-gray-500">
-                    {filteredFiles.length}/{groupFiles.length} file
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              <div className="p-4 space-y-3">
-                {filteredFiles.length > 0 ? (
-                  filteredFiles.map((file) => (
-                    <div key={file.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden">
-                          {getFileIcon(file.type)}
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-gray-900 truncate">
-                              {file.name}
-                            </p>
-                          </div>
-                          <p className="text-xs text-gray-500">
-                            {file.size} • {file.uploadedBy} • {file.uploadDate}
-                          </p>
-                          <p className="text-xs text-gray-400 truncate">
-                            {file.description}
-                          </p>
-                          {/* Tags */}
-                          {file.tags && file.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {file.tags.slice(0, 3).map((tag) => (
-                                <span 
-                                  key={tag}
-                                  className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700"
-                                >
-                                  <Hash className="h-2 w-2 mr-0.5" />
-                                  {tag}
-                                </span>
-                              ))}
-                              {file.tags.length > 3 && (
-                                <span className="text-xs text-gray-400">
-                                  +{file.tags.length - 3}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Download button */}
-                      <button
-                        onClick={() => handleDownloadFile(file)}
-                        className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Tải xuống file"
-                      >
-                        <Download className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                      <FileText className="h-8 w-8 text-gray-400" />
-                    </div>
-                    <p className="text-sm font-medium text-gray-600 mb-1">
-                      {searchFiles ? 'Không tìm thấy file nào' : 'Chưa có file nào'}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {searchFiles ? 'Thử tìm kiếm với từ khóa khác' : 'File được chia sẻ sẽ hiển thị ở đây'}
-                    </p>
-                  </div>
-                )}
-              </div>
+              <PendingMembers 
+                groupId={currentGroup?.id} 
+                isAdmin={isCurrentUserAdmin()} 
+              />
             </div>
           </div>
         )}
 
+        {activeTab === 'files' && (
+          <Files groupId={currentGroup?.id} isAdmin={isCurrentUserAdmin()} />
+        )}
+
         {activeTab === 'settings' && (
           <div className="flex-1 overflow-y-auto">
-            <div className="p-3 sm:p-4 space-y-3 sm:space-y-4">
-              <div className="space-y-3">
-                <h5 className="font-semibold text-gray-800 flex items-center gap-2 text-sm sm:text-base">
-                  <Settings className="h-4 w-4 text-emerald-500" />
-                  Cài đặt chung
-                </h5>
-                
-                <div className="border-t border-gray-200 pt-3 space-y-2">
-                  {isCurrentUserAdmin() && (
-                    <button 
-                      onClick={() => setShowDeleteGroupModal(true)}
-                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 transition-colors text-left"
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                      <span className="text-sm text-red-600">Xóa nhóm</span>
-                    </button>
-                  )}
-                  
-                  <button 
-                    onClick={() => setShowLeaveGroupModal(true)}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-orange-50 transition-colors text-left"
-                  >
-                    <LogOut className="h-4 w-4 text-orange-500" />
-                    <span className="text-sm text-orange-600">Rời nhóm</span>
-                  </button>
-                </div>
-              </div>
-            </div>
+            <GroupSettings 
+              group={currentGroup} 
+              currentUser={user} 
+              isAdmin={isCurrentUserAdmin()} 
+              onClose={onClose}
+            />
           </div>
         )}
       </div>
@@ -940,6 +934,52 @@ const GroupSidebar = ({ group, onClose }) => {
                   className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
                 >
                   Rời nhóm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Role Change Confirmation Modal */}
+      {showRoleChangeModal && roleChangeData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`w-10 h-10 ${roleChangeData.newRole === 'admin' ? 'bg-blue-100' : 'bg-orange-100'} rounded-lg flex items-center justify-center`}>
+                  <Shield className={`h-5 w-5 ${roleChangeData.newRole === 'admin' ? 'text-blue-600' : 'text-orange-600'}`} />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {roleChangeData.newRole === 'admin' ? 'Thăng chức' : 'Giáng chức'}
+                </h3>
+              </div>
+              
+              <p className="text-gray-600 mb-6">
+                Bạn có chắc chắn muốn {roleChangeData.newRole === 'admin' ? 'thăng chức' : 'giáng chức'}{' '}
+                <strong>{roleChangeData.member.user.displayName}</strong>{' '}
+                thành <strong>{roleChangeData.newRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}</strong> không?
+              </p>
+              
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setShowRoleChangeModal(false);
+                    setRoleChangeData(null);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={confirmRoleChange}
+                  className={`px-4 py-2 text-white rounded-lg transition-colors ${
+                    roleChangeData.newRole === 'admin'
+                      ? 'bg-blue-500 hover:bg-blue-600'
+                      : 'bg-orange-500 hover:bg-orange-600'
+                  }`}
+                >
+                  Xác nhận
                 </button>
               </div>
             </div>

@@ -4,14 +4,14 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
-// Use static Firebase configuration for now to avoid async initialization issues
+// Use environment variables for Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDCnFZ7Iah-k-GeFNCe6zA1p2t3q_qRVcs",
-  authDomain: "docsshare-35adb.firebaseapp.com",
-  projectId: "docsshare-35adb",
-  storageBucket: "docsshare-35adb.firebasestorage.app",
-  messagingSenderId: "321232637786",
-  appId: "1:321232637786:web:25729d8e18dd87b857ad63"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // Initialize Firebase

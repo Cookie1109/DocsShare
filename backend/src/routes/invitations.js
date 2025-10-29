@@ -79,20 +79,7 @@ router.post('/:invitationId/accept', async (req, res) => {
       [invitation.group_id, userId]
     );
 
-    // 3. Add user to group members
-    await executeQuery(
-      `INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'member')
-       ON DUPLICATE KEY UPDATE role = role`,
-      [invitation.group_id, userId]
-    );
-
-    // 4. Update invitation status
-    await executeQuery(
-      `UPDATE group_invitations SET status = 'accepted', updated_at = NOW() WHERE id = ?`,
-      [invitationId]
-    );
-
-    // 4. Get Firestore group ID from mapping
+    // 3. Get Firestore group ID from mapping FIRST (before any updates)
     const mappingResult = await executeQuery(
       `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
       [invitation.group_id]
@@ -111,7 +98,7 @@ router.post('/:invitationId/accept', async (req, res) => {
     const firestoreGroupId = mappings[0].firestore_id;
     console.log(`✅ Found Firestore group ID: ${firestoreGroupId} for MySQL group ${invitation.group_id}`);
 
-    // 5. Add user to Firestore group_members and create system message
+    // 4. Add user to Firestore group_members FIRST (for real-time UI update)
     try {
       const admin = require('../config/firebaseAdmin');
       const db = admin.firestore();
@@ -132,7 +119,69 @@ router.post('/:invitationId/accept', async (req, res) => {
         console.log(`⚠️ User not in Firestore, using Auth: ${userName}`);
       }
       
-      // Add to Firestore group_members with correct Firestore group ID
+      // Check if group requires member approval
+      const groupDoc = await db.collection('groups').doc(firestoreGroupId).get();
+      const groupData = groupDoc.exists ? groupDoc.data() : {};
+      const requireApproval = groupData.requireMemberApproval || false;
+      
+      // Check if inviter is admin
+      const inviterRole = await db.collection('group_members')
+        .where('groupId', '==', firestoreGroupId)
+        .where('userId', '==', invitation.inviter_id)
+        .get();
+      
+      const isInviterAdmin = !inviterRole.empty && inviterRole.docs[0].data().role === 'admin';
+      
+      // If approval required AND inviter is NOT admin, add to pending_members instead
+      if (requireApproval && !isInviterAdmin) {
+        console.log(`⏳ Group requires approval and inviter is not admin. Adding to pending_members...`);
+        
+        // Add to pending_members collection
+        await db.collection('pending_members').add({
+          groupId: firestoreGroupId,
+          userId: userId,
+          invitedBy: invitation.inviter_id,
+          invitedAt: admin.firestore.FieldValue.serverTimestamp(),
+          status: 'pending'
+        });
+        
+        console.log(`✅ Added user ${userId} to pending_members for group ${firestoreGroupId}`);
+        
+        // Delete Firestore invitation document
+        const invitationsSnapshot = await db.collection('group_invitations')
+          .where('invitation_id', '==', parseInt(invitationId))
+          .where('invitee_id', '==', userId)
+          .get();
+        
+        const deletePromises = invitationsSnapshot.docs.map(doc => doc.ref.delete());
+        await Promise.all(deletePromises);
+        
+        // Update invitation status in MySQL
+        await executeQuery(
+          `UPDATE group_invitations SET status = 'accepted', updated_at = NOW() WHERE id = ?`,
+          [invitationId]
+        );
+        
+        // Get group info for response
+        const groupResult = await executeQuery(
+          `SELECT id, name, description FROM \`groups\` WHERE id = ?`,
+          [invitation.group_id]
+        );
+
+        const groups = Array.isArray(groupResult[0]) ? groupResult[0] : (Array.isArray(groupResult) ? groupResult : [groupResult]);
+
+        return res.json({
+          success: true,
+          message: 'Invitation accepted. Waiting for admin approval.',
+          pending: true,
+          data: {
+            group: groups[0],
+            invitation: invitation
+          }
+        });
+      }
+      
+      // Normal flow: Add directly to group_members (no approval needed or inviter is admin)
       // Check if membership already exists
       const membershipQuery = await db.collection('group_members')
         .where('groupId', '==', firestoreGroupId)
@@ -174,9 +223,36 @@ router.post('/:invitationId/accept', async (req, res) => {
       console.log(`✅ Created system message for ${userName} joining Firestore group ${firestoreGroupId} (MySQL group ${invitation.group_id})`);
     } catch (firestoreError) {
       console.error('❌ Firebase sync failed during invitation acceptance:', firestoreError);
-      console.error('⚠️ DATA MISMATCH: Member added to MySQL but may not be in Firebase!');
+      console.error('⚠️ Firebase update failed! Rolling back...');
       console.error(`   MySQL group_id: ${invitation.group_id}, User ID: ${userId}`);
-      // Don't fail the request if Firestore update fails
+      
+      // Return error - don't proceed with MySQL if Firebase fails
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to add member to group in real-time system'
+      });
+    }
+
+    // 5. Now update MySQL (after Firebase is successful)
+    try {
+      // Add user to MySQL group members
+      await executeQuery(
+        `INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'member')
+         ON DUPLICATE KEY UPDATE role = role`,
+        [invitation.group_id, userId]
+      );
+      console.log(`✅ Added user ${userId} to MySQL group ${invitation.group_id}`);
+
+      // Update invitation status
+      await executeQuery(
+        `UPDATE group_invitations SET status = 'accepted', updated_at = NOW() WHERE id = ?`,
+        [invitationId]
+      );
+      console.log(`✅ Updated invitation ${invitationId} status to accepted`);
+    } catch (mysqlError) {
+      console.error('❌ MySQL update failed after Firebase success:', mysqlError);
+      console.error('⚠️ DATA MISMATCH: Member in Firebase but not in MySQL!');
+      // Continue anyway since Firebase (real-time) is more important
     }
 
     // 6. Get group info for response

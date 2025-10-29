@@ -108,8 +108,6 @@ const InvitationNotifications = () => {
       
       setTimeout(() => {
         notification.remove();
-        // Reload to show new group in sidebar
-        window.location.reload();
       }, 2000);
       
     } catch (err) {
@@ -167,7 +165,7 @@ const InvitationNotifications = () => {
 
       {/* Dropdown */}
       {showDropdown && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-emerald-200 z-50">
+        <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-emerald-200 z-50">
           {/* Header */}
           <div className="p-4 border-b bg-gradient-to-r from-emerald-50 to-green-50">
             <div className="flex items-center gap-2">

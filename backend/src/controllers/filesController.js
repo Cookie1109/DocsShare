@@ -369,19 +369,36 @@ const getGroupFiles = async (req, res) => {
     const files = await executeQuery(`
       SELECT 
         f.*,
-        u.display_name as uploader_name,
-        u.email as uploader_email,
         GROUP_CONCAT(
           JSON_OBJECT('id', t.id, 'name', t.name)
         ) as tags_json
       FROM files f
-      JOIN users u ON f.uploader_id = u.id
       LEFT JOIN file_tags ft ON f.id = ft.file_id
       LEFT JOIN tags t ON ft.tag_id = t.id
       WHERE f.group_id = ?
       GROUP BY f.id
       ORDER BY f.created_at ASC
     `, [mysqlGroupId]);
+
+    // Get Firebase user data for all uploaders
+    const uploaderIds = [...new Set(files.map(f => f.uploader_id))];
+    const uploaderData = {};
+    
+    for (const uid of uploaderIds) {
+      try {
+        const userDoc = await admin.firestore().collection('users').doc(uid).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          uploaderData[uid] = {
+            displayName: userData.displayName || userData.display_name || userData.email?.split('@')[0],
+            userTag: userData.userTag || userData.tag,
+            avatar: userData.photoURL || userData.avatar
+          };
+        }
+      } catch (err) {
+        console.error(`Error fetching user ${uid} from Firebase:`, err);
+      }
+    }
 
     // Parse tags JSON and extract tag IDs
     const filesWithTags = files.map(file => {
@@ -397,6 +414,8 @@ const getGroupFiles = async (req, res) => {
         }
       }
       
+      const uploader = uploaderData[file.uploader_id] || {};
+      
       return {
         id: file.id,
         name: file.name,
@@ -405,8 +424,9 @@ const getGroupFiles = async (req, res) => {
         mimeType: file.mime_type,
         uploader: {
           uid: file.uploader_id,
-          name: file.uploader_name,
-          email: file.uploader_email
+          name: uploader.displayName || 'Unknown',
+          tag: uploader.userTag,
+          avatar: uploader.avatar
         },
         tags: tagsArray,
         tagIds: tagIds,

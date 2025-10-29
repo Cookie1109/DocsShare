@@ -371,15 +371,89 @@ router.put('/:groupId/members/:userId', async (req, res) => {
 // Xóa member khỏi nhóm
 router.delete('/:groupId/members/:userId', async (req, res) => {
   try {
-    const { groupId, userId } = req.params;
+    let { groupId, userId } = req.params;
     const removedBy = req.user.id;
     
-    const result = await Group.removeMember(parseInt(groupId), userId, removedBy);
+    // Convert Firestore ID to MySQL ID if needed
+    let mysqlGroupId;
+    let firestoreGroupId = groupId;
+    
+    if (isNaN(groupId)) {
+      // groupId is Firestore ID (string), need to convert to MySQL ID
+      console.log(`🔄 Converting Firestore ID ${groupId} to MySQL ID...`);
+      const mapping = await executeQuery(
+        `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+        [groupId]
+      );
+      
+      if (!mapping || mapping.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Group not found'
+        });
+      }
+      
+      mysqlGroupId = mapping[0].mysql_id;
+      console.log(`✅ Mapped to MySQL group ${mysqlGroupId}`);
+    } else {
+      // groupId is MySQL ID, need to get Firestore ID
+      mysqlGroupId = parseInt(groupId);
+      const mapping = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [mysqlGroupId]
+      );
+      
+      if (mapping && mapping.length > 0) {
+        firestoreGroupId = mapping[0].firestore_id;
+        console.log(`✅ Found Firestore group ID: ${firestoreGroupId} for MySQL group ${mysqlGroupId}`);
+      }
+    }
+    
+    // Remove from Firebase Firestore FIRST (for real-time UI update)
+    if (firestoreGroupId) {
+      try {
+        const admin = require('../config/firebaseAdmin');
+        const db = admin.firestore();
+        
+        // Query to find the member document
+        const memberSnapshot = await db.collection('group_members')
+          .where('groupId', '==', firestoreGroupId)
+          .where('userId', '==', userId)
+          .get();
+        
+        if (!memberSnapshot.empty) {
+          const batch = db.batch();
+          memberSnapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+          
+          console.log(`✅ Removed user ${userId} from Firebase group ${firestoreGroupId} (${memberSnapshot.size} document(s))`);
+        } else {
+          console.log(`⚠️ No Firebase document found for user ${userId} in group ${firestoreGroupId}`);
+        }
+      } catch (firebaseError) {
+        console.error('❌ Failed to remove from Firebase:', firebaseError);
+        // Return error - don't proceed with MySQL if Firebase fails
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to remove member from real-time system'
+        });
+      }
+    }
+    
+    // Remove from MySQL (after Firebase is successful)
+    const result = await Group.removeMember(mysqlGroupId, userId, removedBy);
     
     if (result.success) {
       res.json(result);
     } else {
-      res.status(400).json(result);
+      console.error('❌ MySQL removal failed after Firebase success');
+      // Return success anyway since Firebase (real-time) succeeded
+      res.json({
+        success: true,
+        message: 'Member removed successfully (real-time updated)'
+      });
     }
   } catch (error) {
     console.error('Remove member error:', error);
@@ -452,41 +526,51 @@ router.post('/:groupId/leave', async (req, res) => {
       }
     }
     
-    // Remove from MySQL
+    // Remove from Firebase Firestore FIRST (for real-time UI update)
+    try {
+      const admin = require('../config/firebaseAdmin');
+      const db = admin.firestore();
+      
+      // Query to find the member document (since Firebase uses auto-generated IDs)
+      const memberSnapshot = await db.collection('group_members')
+        .where('groupId', '==', firestoreGroupId)
+        .where('userId', '==', userId)
+        .get();
+      
+      if (!memberSnapshot.empty) {
+        // Delete all matching documents (should be only one)
+        const batch = db.batch();
+        memberSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+        
+        console.log(`✅ Removed user ${userId} from Firebase group ${firestoreGroupId} (${memberSnapshot.size} document(s))`);
+      } else {
+        console.log(`⚠️ No Firebase document found for user ${userId} in group ${firestoreGroupId}`);
+      }
+    } catch (firebaseError) {
+      console.error('❌ Failed to remove from Firebase:', firebaseError);
+      // Return error - don't proceed with MySQL if Firebase fails
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to remove member from real-time system'
+      });
+    }
+
+    // Remove from MySQL (after Firebase is successful)
     const result = await Group.removeMember(mysqlGroupId, userId, userId);
     
     if (result.success) {
-      // Remove from Firebase Firestore
-      try {
-        const admin = require('../config/firebaseAdmin');
-        const db = admin.firestore();
-        
-        // Query to find the member document (since Firebase uses auto-generated IDs)
-        const memberSnapshot = await db.collection('group_members')
-          .where('groupId', '==', firestoreGroupId)
-          .where('userId', '==', userId)
-          .get();
-        
-        if (!memberSnapshot.empty) {
-          // Delete all matching documents (should be only one)
-          const batch = db.batch();
-          memberSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-          });
-          await batch.commit();
-          
-          console.log(`✅ Removed user ${userId} from Firebase group ${firestoreGroupId} (${memberSnapshot.size} document(s))`);
-        } else {
-          console.log(`⚠️ No Firebase document found for user ${userId} in group ${firestoreGroupId}`);
-        }
-      } catch (firebaseError) {
-        console.error('❌ Failed to remove from Firebase:', firebaseError);
-        // Don't fail the whole operation if Firebase deletion fails
-      }
-      
       res.json(result);
     } else {
-      res.status(400).json(result);
+      console.error('❌ MySQL removal failed after Firebase success');
+      console.error('⚠️ DATA MISMATCH: Member removed from Firebase but still in MySQL!');
+      // Return success anyway since Firebase (real-time) succeeded
+      res.json({
+        success: true,
+        message: 'Left group successfully (real-time updated)'
+      });
     }
   } catch (error) {
     console.error('Leave group error:', error);
@@ -557,4 +641,390 @@ router.get('/:groupId/stats', async (req, res) => {
   }
 });
 
+/**
+ * Member Approval System Routes
+ */
+
+// Toggle member approval mode (chỉ admin)
+router.put('/:groupId/settings/approval', async (req, res) => {
+  try {
+    let { groupId } = req.params;
+    const { requireApproval } = req.body;
+    const userId = req.user.id;
+    
+    // Convert Firestore ID to MySQL ID if needed
+    let mysqlGroupId;
+    let firestoreGroupId = groupId;
+    
+    if (isNaN(groupId)) {
+      const mapping = await executeQuery(
+        `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+        [groupId]
+      );
+      
+      if (!mapping || mapping.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Group not found'
+        });
+      }
+      
+      mysqlGroupId = mapping[0].mysql_id;
+    } else {
+      mysqlGroupId = parseInt(groupId);
+      const mapping = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [mysqlGroupId]
+      );
+      
+      if (mapping && mapping.length > 0) {
+        firestoreGroupId = mapping[0].firestore_id;
+      }
+    }
+    
+    // Check if user is admin
+    const membership = await executeQuery(
+      `SELECT role FROM group_members WHERE group_id = ? AND user_id = ?`,
+      [mysqlGroupId, userId]
+    );
+    
+    if (!membership || membership.length === 0 || membership[0].role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only admins can change approval settings'
+      });
+    }
+    
+    // Update Firebase first
+    try {
+      const admin = require('../config/firebaseAdmin');
+      const db = admin.firestore();
+      
+      await db.collection('groups').doc(firestoreGroupId).update({
+        requireMemberApproval: requireApproval,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      console.log(`✅ Updated approval mode in Firebase for group ${firestoreGroupId}`);
+    } catch (firebaseError) {
+      console.error('❌ Failed to update Firebase:', firebaseError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to update approval settings'
+      });
+    }
+    
+    // Update MySQL
+    await executeQuery(
+      `UPDATE \`groups\` SET require_member_approval = ? WHERE id = ?`,
+      [requireApproval ? 1 : 0, mysqlGroupId]
+    );
+    
+    console.log(`✅ Updated approval mode in MySQL for group ${mysqlGroupId}`);
+    
+    // Create system message
+    try {
+      const admin = require('../config/firebaseAdmin');
+      const db = admin.firestore();
+      
+      const statusText = requireApproval ? 'bật' : 'tắt';
+      await db.collection('groups').doc(firestoreGroupId).collection('messages').add({
+        type: 'system',
+        content: `Chế độ phê duyệt thành viên đã được ${statusText}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        isSystemMessage: true
+      });
+    } catch (err) {
+      console.error('Failed to create system message:', err);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Approval settings updated successfully',
+      data: {
+        requireApproval
+      }
+    });
+    
+  } catch (error) {
+    console.error('Toggle approval mode error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Get pending members (chỉ admin)
+router.get('/:groupId/pending-members', async (req, res) => {
+  try {
+    let { groupId } = req.params;
+    const userId = req.user.id;
+    
+    // Convert Firestore ID to MySQL ID if needed
+    let firestoreGroupId = groupId;
+    
+    if (isNaN(groupId)) {
+      // Already Firestore ID
+    } else {
+      const mapping = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [parseInt(groupId)]
+      );
+      
+      if (mapping && mapping.length > 0) {
+        firestoreGroupId = mapping[0].firestore_id;
+      }
+    }
+    
+    // Get pending members from Firestore
+    const admin = require('../config/firebaseAdmin');
+    const db = admin.firestore();
+    
+    const pendingSnapshot = await db.collection('pending_members')
+      .where('groupId', '==', firestoreGroupId)
+      .where('status', '==', 'pending')
+      .get();
+    
+    const pendingMembers = [];
+    for (const doc of pendingSnapshot.docs) {
+      const data = doc.data();
+      
+      // Get user info
+      const userDoc = await db.collection('users').doc(data.userId).get();
+      const userData = userDoc.exists ? userDoc.data() : {};
+      
+      // Get inviter info
+      const inviterDoc = await db.collection('users').doc(data.invitedBy).get();
+      const inviterData = inviterDoc.exists ? inviterDoc.data() : {};
+      
+      pendingMembers.push({
+        id: doc.id,
+        userId: data.userId,
+        user: {
+          displayName: userData.displayName || 'Unknown',
+          email: userData.email || '',
+          photoURL: userData.photoURL || null,
+          userTag: userData.userTag || ''
+        },
+        invitedBy: data.invitedBy,
+        inviter: {
+          displayName: inviterData.displayName || 'Unknown',
+          email: inviterData.email || ''
+        },
+        invitedAt: data.invitedAt,
+        status: data.status
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: pendingMembers
+    });
+    
+  } catch (error) {
+    console.error('Get pending members error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Approve pending member (chỉ admin)
+router.post('/:groupId/pending-members/:userId/approve', async (req, res) => {
+  try {
+    let { groupId, userId } = req.params;
+    const adminId = req.user.id;
+    
+    // Convert Firestore ID to MySQL ID if needed
+    let mysqlGroupId;
+    let firestoreGroupId = groupId;
+    
+    if (isNaN(groupId)) {
+      const mapping = await executeQuery(
+        `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+        [groupId]
+      );
+      
+      if (!mapping || mapping.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Group not found'
+        });
+      }
+      
+      mysqlGroupId = mapping[0].mysql_id;
+    } else {
+      mysqlGroupId = parseInt(groupId);
+      const mapping = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [mysqlGroupId]
+      );
+      
+      if (mapping && mapping.length > 0) {
+        firestoreGroupId = mapping[0].firestore_id;
+      }
+    }
+    
+    // Check if admin
+    const membership = await executeQuery(
+      `SELECT role FROM group_members WHERE group_id = ? AND user_id = ?`,
+      [mysqlGroupId, adminId]
+    );
+    
+    if (!membership || membership.length === 0 || membership[0].role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only admins can approve members'
+      });
+    }
+    
+    const admin = require('../config/firebaseAdmin');
+    const db = admin.firestore();
+    
+    // Get pending member info
+    const pendingSnapshot = await db.collection('pending_members')
+      .where('groupId', '==', firestoreGroupId)
+      .where('userId', '==', userId)
+      .where('status', '==', 'pending')
+      .get();
+    
+    if (pendingSnapshot.empty) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pending member not found'
+      });
+    }
+    
+    // Add to group_members in Firebase
+    await db.collection('group_members').add({
+      groupId: firestoreGroupId,
+      userId: userId,
+      role: 'member',
+      joinedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Add to MySQL
+    await executeQuery(
+      `INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'member')
+       ON DUPLICATE KEY UPDATE role = role`,
+      [mysqlGroupId, userId]
+    );
+    
+    // Delete pending member
+    const pendingDoc = pendingSnapshot.docs[0];
+    await pendingDoc.ref.delete();
+    
+    // Get user name for system message
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userName = userDoc.exists ? (userDoc.data().displayName || 'Người dùng') : 'Người dùng';
+    
+    // Create system message
+    await db.collection('groups').doc(firestoreGroupId).collection('messages').add({
+      type: 'system',
+      content: `${userName} đã được phê duyệt và tham gia nhóm`,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      userId: userId,
+      userName: userName,
+      isSystemMessage: true
+    });
+    
+    res.json({
+      success: true,
+      message: 'Member approved successfully'
+    });
+    
+  } catch (error) {
+    console.error('Approve member error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Reject pending member (chỉ admin)
+router.post('/:groupId/pending-members/:userId/reject', async (req, res) => {
+  try {
+    let { groupId, userId } = req.params;
+    const adminId = req.user.id;
+    
+    // Convert Firestore ID to MySQL ID if needed
+    let mysqlGroupId;
+    let firestoreGroupId = groupId;
+    
+    if (isNaN(groupId)) {
+      const mapping = await executeQuery(
+        `SELECT mysql_id FROM group_mapping WHERE firestore_id = ?`,
+        [groupId]
+      );
+      
+      if (!mapping || mapping.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Group not found'
+        });
+      }
+      
+      mysqlGroupId = mapping[0].mysql_id;
+    } else {
+      mysqlGroupId = parseInt(groupId);
+      const mapping = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [mysqlGroupId]
+      );
+      
+      if (mapping && mapping.length > 0) {
+        firestoreGroupId = mapping[0].firestore_id;
+      }
+    }
+    
+    // Check if admin
+    const membership = await executeQuery(
+      `SELECT role FROM group_members WHERE group_id = ? AND user_id = ?`,
+      [mysqlGroupId, adminId]
+    );
+    
+    if (!membership || membership.length === 0 || membership[0].role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only admins can reject members'
+      });
+    }
+    
+    const admin = require('../config/firebaseAdmin');
+    const db = admin.firestore();
+    
+    // Delete pending member
+    const pendingSnapshot = await db.collection('pending_members')
+      .where('groupId', '==', firestoreGroupId)
+      .where('userId', '==', userId)
+      .where('status', '==', 'pending')
+      .get();
+    
+    if (pendingSnapshot.empty) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pending member not found'
+      });
+    }
+    
+    await pendingSnapshot.docs[0].ref.delete();
+    
+    res.json({
+      success: true,
+      message: 'Member rejected successfully'
+    });
+    
+  } catch (error) {
+    console.error('Reject member error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 module.exports = router;
+
