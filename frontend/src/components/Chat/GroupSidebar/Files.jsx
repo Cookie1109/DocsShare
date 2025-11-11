@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useGroupFiles } from '../../../hooks/useGroupFiles';
 import tagsService from '../../../services/tagsService';
+import filesService from '../../../services/filesService';
 import { auth } from '../../../config/firebase';
 
 const Files = ({ groupId, isAdmin }) => {
@@ -64,12 +65,45 @@ const Files = ({ groupId, isAdmin }) => {
     return <File className="h-5 w-5 text-gray-500" />;
   };
 
-  // Filter and sort files
+  // Filter and sort files with priority search
   const filteredFiles = (files || [])
+    .map(file => {
+      if (!searchQuery) {
+        return { ...file, searchScore: 0 };
+      }
+      
+      const searchLower = searchQuery.toLowerCase();
+      let score = 0;
+      
+      // Priority 1: Name match (highest)
+      if (file.name.toLowerCase().includes(searchLower)) {
+        score = 100;
+        // Bonus if starts with search query
+        if (file.name.toLowerCase().startsWith(searchLower)) {
+          score = 150;
+        }
+      }
+      // Priority 2: Tag match
+      else if (file.tags?.some(tagId => {
+        const tag = tags.find(t => t.id === tagId);
+        return tag && tag.name.toLowerCase().includes(searchLower);
+      })) {
+        score = 50;
+      }
+      // Priority 3: File type match
+      else if (file.type.toLowerCase().includes(searchLower)) {
+        score = 30;
+      }
+      // Priority 4: Uploader match
+      else if (file.uploadedBy.toLowerCase().includes(searchLower)) {
+        score = 20;
+      }
+      
+      return { ...file, searchScore: score };
+    })
     .filter(file => {
-      // Search filter
-      const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           file.uploadedBy.toLowerCase().includes(searchQuery.toLowerCase());
+      // Search filter - keep if no search query or has match
+      const matchesSearch = !searchQuery || file.searchScore > 0;
       
       // Tag filter
       const matchesTag = !selectedTagId || 
@@ -78,6 +112,12 @@ const Files = ({ groupId, isAdmin }) => {
       return matchesSearch && matchesTag;
     })
     .sort((a, b) => {
+      // If searching, sort by search score first
+      if (searchQuery && a.searchScore !== b.searchScore) {
+        return b.searchScore - a.searchScore;
+      }
+      
+      // Then by selected sort option
       let comparison = 0;
       
       if (sortBy === 'name') {
@@ -93,8 +133,52 @@ const Files = ({ groupId, isAdmin }) => {
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
-  const handleDownload = (file) => {
-    window.open(file.url, '_blank');
+  const handleDownload = async (file) => {
+    console.log('🔽 Downloading file from sidebar:', file.name);
+    
+    try {
+      // Track download in backend (async - không chờ để không làm chậm download)
+      filesService.trackDownload(file.id).then(result => {
+        if (result.success) {
+          console.log(`✅ Download tracked: ${file.name} - Count: ${result.data.downloadCount}`);
+          // Refresh file list để cập nhật số downloads
+          if (refreshFiles) {
+            refreshFiles();
+          }
+        } else {
+          console.warn('⚠️ Failed to track download:', result.error);
+        }
+      }).catch(err => {
+        console.warn('⚠️ Track download error:', err);
+      });
+
+      // Download file bằng cách fetch và tạo blob
+      const response = await fetch(file.url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      
+      // Create download link
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Cleanup
+      window.URL.revokeObjectURL(blobUrl);
+      
+      console.log('✅ Download completed for:', file.name);
+      
+    } catch (error) {
+      console.error('❌ Download failed:', error);
+      alert('Không thể tải xuống file. Vui lòng thử lại.');
+    }
   };
 
   const handleDeleteClick = (file) => {
@@ -107,28 +191,46 @@ const Files = ({ groupId, isAdmin }) => {
     
     setIsDeleting(true);
     try {
-      await deleteFile(groupId, selectedFile.id);
+      const result = await deleteFile(selectedFile.id);
       
-      // Show success notification
+      if (result.success) {
+        // Show success notification
+        const notification = document.createElement('div');
+        notification.className = 'fixed top-4 right-4 bg-orange-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+        notification.innerHTML = `
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          <span>Đã xóa file thành công</span>
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+          notification.remove();
+        }, 3000);
+        
+        setShowDeleteModal(false);
+        setSelectedFile(null);
+      } else {
+        throw new Error(result.message || 'Xóa file thất bại');
+      }
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      
+      // Show error notification
       const notification = document.createElement('div');
-      notification.className = 'fixed top-4 right-4 bg-orange-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+      notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
       notification.innerHTML = `
         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
         </svg>
-        <span>Đã xóa file thành công</span>
+        <span>${error.message || 'Không thể xóa file'}</span>
       `;
       document.body.appendChild(notification);
       
       setTimeout(() => {
         notification.remove();
       }, 3000);
-      
-      setShowDeleteModal(false);
-      setSelectedFile(null);
-    } catch (error) {
-      console.error('Error deleting file:', error);
-      alert('Không thể xóa file');
     } finally {
       setIsDeleting(false);
     }

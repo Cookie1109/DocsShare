@@ -123,13 +123,9 @@ const GroupSidebar = ({ group, onClose }) => {
     setIsAnimatingIn(true);
   }, []);
 
-  // Load group members when group changes
-  React.useEffect(() => {
-    if (currentGroup?.id && selectGroup) {
-      selectGroup(currentGroup.id);
-    }
-  }, [currentGroup?.id, selectGroup]);
-
+  // NOTE: Removed auto-selectGroup useEffect to prevent infinite loop
+  // when switching groups with sidebar open. Group selection is handled
+  // by ChatArea and AuthContext - no need to re-select here.
 
   
   // Helper functions

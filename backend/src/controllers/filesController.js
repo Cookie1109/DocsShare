@@ -229,7 +229,8 @@ const saveFileMetadata = async (req, res) => {
         uploaderId: userId,
         uploaderEmail: req.user.email,
         uploaderName: req.user.displayName || req.user.email,
-        uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        uploadedAt: admin.firestore.FieldValue.serverTimestamp(), // Keep for compatibility
         downloadCount: 0,
         tags: tagsMap,
         tagIds: tagIds || []
@@ -389,8 +390,14 @@ const getGroupFiles = async (req, res) => {
         const userDoc = await admin.firestore().collection('users').doc(uid).get();
         if (userDoc.exists) {
           const userData = userDoc.data();
+          // Use username (already includes tag) OR construct from displayName + userTag
+          const formattedName = userData.username || 
+                                (userData.displayName && userData.userTag ? 
+                                  `${userData.displayName}#${userData.userTag}` : 
+                                  userData.displayName || userData.email?.split('@')[0]);
+          
           uploaderData[uid] = {
-            displayName: userData.displayName || userData.display_name || userData.email?.split('@')[0],
+            displayName: formattedName, // Full username with tag
             userTag: userData.userTag || userData.tag,
             avatar: userData.photoURL || userData.avatar
           };
@@ -402,12 +409,11 @@ const getGroupFiles = async (req, res) => {
 
     // Parse tags JSON and extract tag IDs
     const filesWithTags = files.map(file => {
-      let tagsArray = [];
       let tagIds = [];
       
       if (file.tags_json) {
         try {
-          tagsArray = JSON.parse(`[${file.tags_json}]`);
+          const tagsArray = JSON.parse(`[${file.tags_json}]`);
           tagIds = tagsArray.map(t => t.id).filter(id => id != null);
         } catch (err) {
           console.error('Error parsing tags JSON:', err);
@@ -428,8 +434,7 @@ const getGroupFiles = async (req, res) => {
           tag: uploader.userTag,
           avatar: uploader.avatar
         },
-        tags: tagsArray,
-        tagIds: tagIds,
+        tagIds: tagIds, // Only return tagIds, not full tag objects
         downloadCount: file.download_count,
         createdAt: file.created_at
       };
@@ -697,10 +702,94 @@ const deleteFile = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/files/:fileId/download
+ * Track file download và tăng download count
+ */
+const trackDownload = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const fileId = parseInt(req.params.fileId);
+
+    if (!fileId || isNaN(fileId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid file ID'
+      });
+    }
+
+    console.log(`📥 Tracking download for file ${fileId} by user ${userId}`);
+
+    // Kiểm tra file tồn tại
+    const [file] = await executeQuery(
+      `SELECT f.id, f.name, f.group_id, f.download_count
+       FROM files f
+       WHERE f.id = ?`,
+      [fileId]
+    );
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+
+    // Kiểm tra user có trong group không
+    const [membership] = await executeQuery(
+      `SELECT user_id FROM group_members WHERE group_id = ? AND user_id = ?`,
+      [file.group_id, userId]
+    );
+
+    if (!membership) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this file'
+      });
+    }
+
+    // Tăng download count
+    await executeQuery(
+      `UPDATE files SET download_count = download_count + 1 WHERE id = ?`,
+      [fileId]
+    );
+
+    // Log activity
+    await executeQuery(
+      `INSERT INTO activity_logs (user_id, action_type, target_id, details, created_at)
+       VALUES (?, 'download', ?, JSON_OBJECT('file_name', ?), NOW())`,
+      [userId, fileId.toString(), file.name]
+    );
+
+    const newDownloadCount = file.download_count + 1;
+
+    console.log(`✅ Download tracked: ${file.name} - Total downloads: ${newDownloadCount}`);
+
+    res.json({
+      success: true,
+      message: 'Download tracked successfully',
+      data: {
+        fileId: fileId,
+        fileName: file.name,
+        downloadCount: newDownloadCount
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error tracking download:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to track download',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createUploadSignature,
   saveFileMetadata,
   getGroupFiles,
   deleteFile,
+  trackDownload,
   debugUserGroups
 };

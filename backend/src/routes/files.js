@@ -3,7 +3,8 @@ const {
   createUploadSignature, 
   saveFileMetadata, 
   getGroupFiles,
-  deleteFile
+  deleteFile,
+  trackDownload
   // debugUserGroups - temporarily removed to test
 } = require('../controllers/filesController');
 const verifyFirebaseToken = require('../middleware/firebaseAuth');
@@ -111,6 +112,29 @@ router.post('/metadata', verifyFirebaseToken, saveFileMetadata);
  *   }
  */
 router.get('/group/:groupId', verifyFirebaseToken, getGroupFiles);
+
+/**
+ * POST /api/files/:fileId/download
+ * Track file download và tăng download count
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Params:
+ *   fileId: ID của file được download
+ * 
+ * Response:
+ *   {
+ *     "success": true,
+ *     "message": "Download tracked successfully",
+ *     "data": {
+ *       "fileId": 456,
+ *       "fileName": "document.pdf",
+ *       "downloadCount": 5
+ *     }
+ *   }
+ */
+router.post('/:fileId/download', verifyFirebaseToken, trackDownload);
 
 /**
  * Error handling middleware cho files routes

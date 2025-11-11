@@ -34,6 +34,7 @@ import TagSelector from './TagSelector';
 import GroupSidebar from './GroupSidebar';
 import { useGroupFiles } from '../../hooks/useGroupFiles';
 import tagsService from '../../services/tagsService';
+import filesService from '../../services/filesService';
 import { getFirestore, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 const ChatArea = ({ user, onBackClick, isMobileView }) => {
@@ -348,7 +349,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Search functionality
+  // Search functionality with priority: name > tag > type
   const handleSearch = (query) => {
     if (!query.trim()) {
       setFilteredDocuments([]);
@@ -356,15 +357,54 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
     }
 
     const allDocs = getCurrentGroupDocuments();
-    const filtered = allDocs.filter(doc =>
-      doc.name.toLowerCase().includes(query.toLowerCase()) ||
-      doc.uploadedBy.toLowerCase().includes(query.toLowerCase()) ||
-      doc.tags?.some(tagId => {
+    const searchLower = query.toLowerCase();
+    
+    // Filter and score documents
+    const scoredDocs = allDocs.map(doc => {
+      let score = 0;
+      let matchType = '';
+      
+      // Priority 1: Name match (highest priority)
+      if (doc.name.toLowerCase().includes(searchLower)) {
+        score = 100;
+        // Bonus if it starts with the search query
+        if (doc.name.toLowerCase().startsWith(searchLower)) {
+          score = 150;
+        }
+        matchType = 'name';
+      }
+      // Priority 2: Tag match
+      else if (doc.tags?.some(tagId => {
         const tag = getTagInfo(tagId);
-        return tag && tag.name.toLowerCase().includes(query.toLowerCase());
-      })
-    );
-    setFilteredDocuments(filtered);
+        return tag && tag.name.toLowerCase().includes(searchLower);
+      })) {
+        score = 50;
+        matchType = 'tag';
+      }
+      // Priority 3: File type match
+      else if (doc.type.toLowerCase().includes(searchLower)) {
+        score = 30;
+        matchType = 'type';
+      }
+      // Also check uploader name (lower priority than type)
+      else if (doc.uploadedBy.toLowerCase().includes(searchLower)) {
+        score = 20;
+        matchType = 'uploader';
+      }
+      
+      return { ...doc, searchScore: score, matchType };
+    })
+    .filter(doc => doc.searchScore > 0)
+    .sort((a, b) => {
+      // Sort by score (descending)
+      if (b.searchScore !== a.searchScore) {
+        return b.searchScore - a.searchScore;
+      }
+      // If same score, sort by name alphabetically
+      return a.name.localeCompare(b.name);
+    });
+    
+    setFilteredDocuments(scoredDocs);
   };
 
   // Get tag info by ID
@@ -405,6 +445,19 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
     console.log('🔽 Downloading file:', doc.name);
     
     try {
+      // Track download in backend (async - không chờ để không làm chậm download)
+      filesService.trackDownload(doc.id).then(result => {
+        if (result.success) {
+          console.log(`✅ Download tracked: ${doc.name} - Count: ${result.data.downloadCount}`);
+          // Update local state để hiển thị số lượt download mới
+          refreshFiles();
+        } else {
+          console.warn('⚠️ Failed to track download:', result.error);
+        }
+      }).catch(err => {
+        console.warn('⚠️ Track download error:', err);
+      });
+
       // Fetch file as blob to bypass CORS download name restriction
       const response = await fetch(doc.url);
       
@@ -1054,9 +1107,8 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
 
             // File message (existing code)
             const doc = item;
-            const uploaderDisplayName = doc.uploaderTag 
-              ? `${doc.uploadedBy}#${doc.uploaderTag}`
-              : doc.uploadedBy;
+            // uploadedBy already includes tag from realtime profile update
+            const uploaderDisplayName = doc.uploadedBy;
             
             return (
               <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3 group relative">
