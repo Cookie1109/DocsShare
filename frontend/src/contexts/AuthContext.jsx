@@ -268,6 +268,94 @@ export const AuthProvider = ({ children }) => {
     };
   }, [user?.uid, profileIncomplete]);
 
+  // 🔥 Real-time listener for group members of selected group
+  useEffect(() => {
+    if (!selectedGroup) {
+      setGroupMembers([]);
+      return;
+    }
+
+    console.log('🔥 Setting up real-time listener for group members:', selectedGroup);
+    
+    const membersQuery = query(
+      collection(db, 'group_members'),
+      where('groupId', '==', selectedGroup)
+    );
+
+    const unsubscribe = onSnapshot(membersQuery, async (snapshot) => {
+      console.log('📥 Group members updated:', snapshot.size, 'members');
+      
+      // Get all user IDs from members
+      const userIds = snapshot.docs.map(doc => doc.data().userId);
+      
+      if (userIds.length === 0) {
+        setGroupMembers([]);
+        return;
+      }
+
+      // Fetch user details for all members in parallel
+      try {
+        const memberPromises = snapshot.docs.map(async (memberDoc) => {
+          const memberData = memberDoc.data();
+          const userId = memberData.userId;
+          
+          // Get user data from Firestore
+          const userDoc = await getDoc(doc(db, 'users', userId));
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            return {
+              id: memberDoc.id,
+              userId: userId,
+              role: memberData.role,
+              joinedAt: memberData.joinedAt,
+              username: userData.username || userData.displayName || userData.email,
+              displayName: userData.displayName,
+              tag: userData.tag,
+              avatar: userData.avatar,
+              email: userData.email
+            };
+          } else {
+            // Fallback if user not found
+            return {
+              id: memberDoc.id,
+              userId: userId,
+              role: memberData.role,
+              joinedAt: memberData.joinedAt,
+              username: `User ${userId.substring(0, 8)}`,
+              displayName: 'Unknown User',
+              email: ''
+            };
+          }
+        });
+
+        const membersWithDetails = await Promise.all(memberPromises);
+        
+        // Sort by role (admin first) then by joinedAt
+        const sortedMembers = membersWithDetails.sort((a, b) => {
+          if (a.role === 'admin' && b.role !== 'admin') return -1;
+          if (a.role !== 'admin' && b.role === 'admin') return 1;
+          
+          const aTime = a.joinedAt?.seconds || 0;
+          const bTime = b.joinedAt?.seconds || 0;
+          return aTime - bTime;
+        });
+        
+        setGroupMembers(sortedMembers);
+        console.log('✅ Updated group members:', sortedMembers.length);
+      } catch (error) {
+        console.error('Error fetching member details:', error);
+      }
+    }, (error) => {
+      console.error('❌ Error listening to group members:', error);
+    });
+
+    return () => {
+      console.log('🔌 Cleaning up group members listener');
+      unsubscribe();
+    };
+  }, [selectedGroup]);
+
   const checkProfileStatus = async (firebaseUser) => {
     try {
       const token = await firebaseUser.getIdToken();
@@ -504,6 +592,10 @@ export const AuthProvider = ({ children }) => {
       const result = await createGroup(groupName, user.uid, groupPhotoUrl);
       if (result.success) {
         await loadUserGroups(); // Refresh groups list
+        // Auto-select the newly created group
+        if (result.groupId) {
+          await selectGroup(result.groupId);
+        }
       }
       return result;
     } catch (error) {
@@ -514,11 +606,7 @@ export const AuthProvider = ({ children }) => {
 
   const selectGroup = async (groupId) => {
     setSelectedGroup(groupId);
-    if (groupId) {
-      await loadGroupMembers(groupId);
-    } else {
-      setGroupMembers([]);
-    }
+    // No need to call loadGroupMembers - realtime listener will handle it
   };
 
   const loadGroupMembers = async (groupId) => {
@@ -535,9 +623,7 @@ export const AuthProvider = ({ children }) => {
   const addMemberToGroup = async (groupId, userId, role = 'member') => {
     try {
       const result = await addGroupMember(groupId, userId, role);
-      if (result.success && selectedGroup === groupId) {
-        await loadGroupMembers(groupId); // Refresh members list
-      }
+      // No need to refresh - realtime listener will handle it
       return result;
     } catch (error) {
       console.error('Error adding member:', error);
@@ -548,9 +634,7 @@ export const AuthProvider = ({ children }) => {
   const removeMemberFromGroup = async (membershipId, groupId) => {
     try {
       const result = await removeGroupMember(membershipId);
-      if (result.success && selectedGroup === groupId) {
-        await loadGroupMembers(groupId); // Refresh members list
-      }
+      // No need to refresh - realtime listener will handle it
       return result;
     } catch (error) {
       console.error('Error removing member:', error);
@@ -561,9 +645,7 @@ export const AuthProvider = ({ children }) => {
   const updateMemberRoleInGroup = async (membershipId, newRole, groupId) => {
     try {
       const result = await updateMemberRole(membershipId, newRole);
-      if (result.success && selectedGroup === groupId) {
-        await loadGroupMembers(groupId); // Refresh members list
-      }
+      // No need to refresh - realtime listener will handle it
       return result;
     } catch (error) {
       console.error('Error updating member role:', error);
@@ -600,17 +682,23 @@ export const AuthProvider = ({ children }) => {
         }
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Delete group failed:', errorData);
+        return { success: false, error: errorData.error || 'Failed to delete group' };
+      }
+
       const result = await response.json();
       
       if (result.success) {
-        // Refresh groups list
-        await loadUserGroups();
-        
-        // Clear selected group if it was the deleted one
+        // Clear selected group first (before refreshing list)
         if (selectedGroup === groupId) {
           setSelectedGroup(null);
           setGroupMembers([]);
         }
+        
+        // Then refresh groups list
+        await loadUserGroups();
       }
       
       return result;

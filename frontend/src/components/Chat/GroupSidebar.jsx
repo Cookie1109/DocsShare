@@ -245,7 +245,14 @@ const GroupSidebar = ({ group, onClose }) => {
     if (!selectedMember || !selectedGroup) return;
     
     try {
-      const result = await removeMemberFromGroup(selectedMember.membershipId, selectedGroup);
+      const membershipId = selectedMember.id || selectedMember.membershipId;
+      if (!membershipId) {
+        console.error('No membership ID found:', selectedMember);
+        alert('Không tìm thấy thông tin thành viên');
+        return;
+      }
+      
+      const result = await removeMemberFromGroup(membershipId, selectedGroup);
       if (result.success) {
         // Show notification in top-right corner
         const notification = document.createElement('div');
@@ -254,7 +261,7 @@ const GroupSidebar = ({ group, onClose }) => {
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
           </svg>
-          <span>Đã xóa ${selectedMember.user.displayName} khỏi nhóm</span>
+          <span>Đã xóa ${selectedMember.displayName || selectedMember.username || selectedMember.user?.displayName} khỏi nhóm</span>
         `;
         document.body.appendChild(notification);
         
@@ -316,7 +323,14 @@ const GroupSidebar = ({ group, onClose }) => {
     const actionText = newRole === 'admin' ? 'thăng chức' : 'giáng chức';
     
     try {
-      const result = await updateMemberRoleInGroup(member.membershipId, newRole, selectedGroup);
+      const membershipId = member.id || member.membershipId;
+      if (!membershipId) {
+        console.error('No membership ID found:', member);
+        alert('Không tìm thấy thông tin thành viên');
+        return;
+      }
+      
+      const result = await updateMemberRoleInGroup(membershipId, newRole, selectedGroup);
       if (result.success) {
         // Show success notification with color based on action
         const notification = document.createElement('div');
@@ -328,7 +342,7 @@ const GroupSidebar = ({ group, onClose }) => {
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
           </svg>
-          <span>Đã ${actionText} ${member.user.displayName} thành ${newRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}</span>
+          <span>Đã ${actionText} ${member.displayName || member.username || member.user?.displayName} thành ${newRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}</span>
         `;
         document.body.appendChild(notification);
         
@@ -442,15 +456,20 @@ const GroupSidebar = ({ group, onClose }) => {
     try {
       const result = await deleteGroup(selectedGroup);
       if (result.success) {
-        onClose(); // Close sidebar
+        // Close modals first
+        setShowDeleteGroupModal(false);
+        // Close sidebar after state is updated
+        setTimeout(() => {
+          onClose();
+        }, 100);
       } else {
+        setShowDeleteGroupModal(false);
         alert(`Lỗi: ${result.error}`);
       }
     } catch (error) {
       console.error('Error deleting group:', error);
-      alert('Có lỗi xảy ra khi xóa nhóm');
-    } finally {
       setShowDeleteGroupModal(false);
+      alert('Có lỗi xảy ra khi xóa nhóm');
     }
   };
 
@@ -659,14 +678,14 @@ const GroupSidebar = ({ group, onClose }) => {
             <div className="flex-1 overflow-y-auto">
               <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                 {groupMembers?.map((member) => (
-                  <div key={member.membershipId} className="flex items-center justify-between p-2 sm:p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors gap-2">
+                  <div key={member.id || member.membershipId} className="flex items-center justify-between p-2 sm:p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors gap-2">
                     <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0">
                       <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0">
-                        {member.user.avatar ? (
-                          <img src={member.user.avatar} alt={member.user.displayName} className="w-full h-full object-cover" />
+                        {member.avatar || member.user?.avatar ? (
+                          <img src={member.avatar || member.user?.avatar} alt={member.displayName || member.user?.displayName} className="w-full h-full object-cover" />
                         ) : (
                           <span className="text-emerald-600 font-semibold text-lg">
-                            {member.user.displayName?.charAt(0).toUpperCase() || '?'}
+                            {(member.displayName || member.user?.displayName || member.username)?.charAt(0).toUpperCase() || '?'}
                           </span>
                         )}
                       </div>
@@ -674,7 +693,7 @@ const GroupSidebar = ({ group, onClose }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium text-gray-900 truncate">
-                            {member.user.displayName}#{member.user.userTag}
+                            {member.username || `${member.displayName || member.user?.displayName}#${member.tag || member.user?.userTag}`}
                           </p>
                           {member.userId === currentGroup?.creatorId && (
                             <Crown className="h-4 w-4 text-yellow-500" title="Người tạo nhóm" />
@@ -684,7 +703,7 @@ const GroupSidebar = ({ group, onClose }) => {
                           {member.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}
                         </p>
                         <p className="text-xs text-gray-400">
-                          {member.user.email}
+                          {member.email || member.user?.email}
                         </p>
                       </div>
                     </div>
@@ -953,7 +972,7 @@ const GroupSidebar = ({ group, onClose }) => {
               
               <p className="text-gray-600 mb-6">
                 Bạn có chắc chắn muốn {roleChangeData.newRole === 'admin' ? 'thăng chức' : 'giáng chức'}{' '}
-                <strong>{roleChangeData.member.user.displayName}</strong>{' '}
+                <strong>{roleChangeData.member.displayName || roleChangeData.member.username || roleChangeData.member.user?.displayName}</strong>{' '}
                 thành <strong>{roleChangeData.newRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}</strong> không?
               </p>
               

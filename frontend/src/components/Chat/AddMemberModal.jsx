@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Search, UserPlus, Loader, Check, AlertCircle } from 'lucide-react';
+import { X, Search, UserPlus, Loader, Check, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { auth } from '../../config/firebase';
 import { getFirestore, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+
+const USERS_PER_PAGE = 3;
 
 const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -12,6 +14,7 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const searchInputRef = React.useRef(null);
 
   // Reset form when modal opens
@@ -22,6 +25,7 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
       setSearchQuery('');
       setSearchResults([]);
       setSelectedUsers([]);
+      setCurrentPage(1);
       setError('');
       setSuccess('');
       setIsSearching(false);
@@ -32,6 +36,11 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
       }, 100);
     }
   }, [isOpen]);
+
+  // Reset to page 1 when search results change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchResults.length]);
 
   // Debounced search - Search directly from Firebase
   useEffect(() => {
@@ -188,6 +197,24 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
 
   if (!isOpen) return null;
 
+  // Pagination logic
+  const totalPages = Math.ceil(searchResults.length / USERS_PER_PAGE);
+  const startIndex = (currentPage - 1) * USERS_PER_PAGE;
+  const endIndex = startIndex + USERS_PER_PAGE;
+  const paginatedResults = searchResults.slice(startIndex, endIndex);
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
   const modalContent = (
     <div 
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
@@ -244,8 +271,18 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
           {/* Search Results */}
           {searchResults.length > 0 && (
             <div className="mb-4">
+              {/* Results count and pagination info */}
+              <div className="flex items-center justify-between mb-3 text-sm text-gray-600">
+                <span>
+                  Tìm thấy <strong className="text-gray-900">{searchResults.length}</strong> người dùng
+                  {totalPages > 1 && (
+                    <span className="text-gray-500"> • Trang {currentPage}/{totalPages}</span>
+                  )}
+                </span>
+              </div>
+
               <div className="space-y-2">
-                {searchResults.map(user => {
+                {paginatedResults.map(user => {
                   const isSelected = selectedUsers.find(u => u.uid === user.uid);
                   
                   return (
@@ -300,6 +337,45 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
                   );
                 })}
               </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t border-gray-100">
+                  <button
+                    onClick={handlePrevPage}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Trang trước"
+                  >
+                    <ChevronLeft className="h-5 w-5 text-gray-600" />
+                  </button>
+                  
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`min-w-[2rem] h-8 px-2 rounded-lg text-sm font-medium transition-all ${
+                          currentPage === pageNum
+                            ? 'bg-green-500 text-white shadow-sm'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Trang sau"
+                  >
+                    <ChevronRight className="h-5 w-5 text-gray-600" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

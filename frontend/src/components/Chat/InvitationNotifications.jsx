@@ -89,26 +89,45 @@ const InvitationNotifications = () => {
 
       const result = await response.json();
       
-      // Remove from list immediately
+      // Remove from list immediately (realtime will update in background)
       setInvitations(prev => prev.filter(inv => inv.id !== invitationId));
       
-      // Show success with group name
+      // Show success message
       const groupName = result.data?.group?.name || 'nhóm';
+      const isPending = result.pending;
       
-      // Create a better notification
+      // Create a better notification with different message based on approval status
       const notification = document.createElement('div');
       notification.className = 'fixed top-4 right-4 bg-emerald-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
-      notification.innerHTML = `
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-        </svg>
-        <span>Đã tham gia nhóm "${groupName}"</span>
-      `;
+      
+      if (isPending) {
+        // Waiting for admin approval
+        notification.className = 'fixed top-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-xl z-[9999] flex items-center gap-2 animate-slide-in';
+        notification.innerHTML = `
+          <svg class="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span>Đang chờ quản trị viên phê duyệt vào "${groupName}"</span>
+        `;
+      } else {
+        // Joined immediately
+        notification.innerHTML = `
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          <span>Đã tham gia nhóm "${groupName}"</span>
+        `;
+        
+        // Log to confirm realtime is working
+        console.log(`✅ Accepted invitation - Realtime listener will update group list automatically`);
+      }
+      
       document.body.appendChild(notification);
       
       setTimeout(() => {
         notification.remove();
-      }, 2000);
+      }, 3000);
       
     } catch (err) {
       console.error('Accept invitation error:', err);

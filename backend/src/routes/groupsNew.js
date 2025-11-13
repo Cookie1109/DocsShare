@@ -245,7 +245,25 @@ router.delete('/:groupId', async (req, res) => {
           batch.delete(doc.ref);
         });
         
-        // 5. Delete group mapping
+        // 5. Delete all pending members
+        const pendingSnapshot = await db.collection('pending_members')
+          .where('groupId', '==', firestoreGroupId)
+          .get();
+        
+        pendingSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        // 6. Delete all group invitations
+        const invitationsSnapshot = await db.collection('group_invitations')
+          .where('group_id', '==', firestoreGroupId)
+          .get();
+        
+        invitationsSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        
+        // 7. Delete group mapping
         const mappingSnapshot = await db.collection('group_mapping')
           .where('firestore_id', '==', firestoreGroupId)
           .get();
@@ -254,14 +272,14 @@ router.delete('/:groupId', async (req, res) => {
           batch.delete(doc.ref);
         });
         
-        // 6. Delete group document (LAST - after all subcollections)
+        // 8. Delete group document (LAST - after all subcollections)
         const groupRef = db.collection('groups').doc(firestoreGroupId);
         batch.delete(groupRef);
         
         // Commit all deletes
         await batch.commit();
         
-        console.log(`✅ Deleted from Firebase: Group + ${membersSnapshot.size} members + ${filesSnapshot.size} files + ${tagsSnapshot.size} tags`);
+        console.log(`✅ Deleted from Firebase: Group + ${membersSnapshot.size} members + ${pendingSnapshot.size} pending + ${invitationsSnapshot.size} invitations + ${filesSnapshot.size} files + ${tagsSnapshot.size} tags`);
       } catch (firebaseError) {
         console.error('❌ Failed to delete from Firebase:', firebaseError);
         // Don't fail the whole operation if Firebase deletion fails

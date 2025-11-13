@@ -320,13 +320,10 @@ class Group {
   static async delete(groupId, deletedBy) {
     try {
       return await executeTransaction(async (connection) => {
-        // Kiểm tra quyền xóa (creator hoặc admin)
+        // Kiểm tra nhóm có tồn tại và lấy thông tin creator
         const [groupInfo] = await connection.execute(
-          `SELECT g.creator_id, gm.role 
-           FROM \`groups\` g
-           LEFT JOIN group_members gm ON g.id = gm.group_id AND gm.user_id = ?
-           WHERE g.id = ?`,
-          [deletedBy, groupId]
+          `SELECT creator_id FROM \`groups\` WHERE id = ?`,
+          [groupId]
         );
         
         if (groupInfo.length === 0) {
@@ -334,7 +331,16 @@ class Group {
         }
         
         const isCreator = groupInfo[0].creator_id === deletedBy;
-        const isAdmin = groupInfo[0].role === 'admin';
+        
+        // Kiểm tra role của user trong nhóm (nếu không phải creator)
+        let isAdmin = false;
+        if (!isCreator) {
+          const [memberInfo] = await connection.execute(
+            `SELECT role FROM group_members WHERE group_id = ? AND user_id = ?`,
+            [groupId, deletedBy]
+          );
+          isAdmin = memberInfo.length > 0 && memberInfo[0].role === 'admin';
+        }
         
         if (!isCreator && !isAdmin) {
           throw new Error('Only group creator or admin can delete the group');
@@ -362,6 +368,13 @@ class Group {
           [groupId]
         );
         console.log(`✅ Deleted ${deletedMembers.affectedRows} members from MySQL`);
+        
+        // Xóa group invitations
+        const [deletedInvitations] = await connection.execute(
+          `DELETE FROM group_invitations WHERE group_id = ?`,
+          [groupId]
+        );
+        console.log(`✅ Deleted ${deletedInvitations.affectedRows} invitations from MySQL`);
         
         // Xóa nhóm
         const [deletedGroup] = await connection.execute(

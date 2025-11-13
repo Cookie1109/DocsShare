@@ -165,74 +165,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
     }
   }, [files, messages, filesLoading, loadingMessages, selectedGroup]);
 
-  // Old static documents for fallback (removing in next step)
-  const [groupDocuments, setGroupDocuments] = useState({
-    '1': [ // Nhóm React Developers
-      {
-        id: '1',
-        name: 'LeagueClient.exe',
-        size: '28.4 MB',
-        type: 'exe',
-        uploadedBy: 'Người dùng Demo',
-        uploadedAt: '2025-09-11T09:00:00Z',
-        downloads: 0,
-        views: 0,
-        isOwn: false,
-        tags: ['1', '4']
-      },
-      {
-        id: '2', 
-        name: 'React Hooks Guide.pdf',
-        size: '2.5 MB',
-        type: 'pdf',
-        uploadedBy: 'Nguyễn Văn A',
-        uploadedAt: '2025-09-11T10:30:00Z',
-        downloads: 12,
-        views: 25,
-        isOwn: false,
-        tags: ['1', '3']
-      },
-      {
-        id: '3',
-        name: 'Component Architecture.pptx',
-        size: '5.1 MB',
-        type: 'pptx',
-        uploadedBy: 'Bạn',
-        uploadedAt: '2025-09-11T11:45:00Z',
-        downloads: 8,
-        views: 15,
-        isOwn: true,
-        tags: ['6', '1']
-      },
-      {
-        id: '4',
-        name: 'Project Requirements.docx', 
-        size: '890 KB',
-        type: 'docx',
-        uploadedBy: 'Trần Văn B',
-        uploadedAt: '2025-09-11T13:15:00Z',
-        downloads: 5,
-        views: 12,
-        isOwn: false,
-        tags: ['2', '6']
-      },
-      {
-        id: '5',
-        name: 'Database Schema.sql',
-        size: '1.2 MB',
-        type: 'sql',
-        uploadedBy: 'Bạn',
-        uploadedAt: '2025-09-11T14:20:00Z',
-        downloads: 3,
-        views: 8,
-        isOwn: true,
-        tags: ['2', '4']
-      }
-    ],
-    '2': [], // Toán cao cấp A1
-    '3': []  // Tài liệu CNTT
-  });
-
+  // UI State
   const [dragOver, setDragOver] = useState(false);
   const dragCounterRef = useRef(0);
   const [uploading, setUploading] = useState(false);
