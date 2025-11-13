@@ -748,11 +748,52 @@ const trackDownload = async (req, res) => {
       });
     }
 
-    // Tăng download count
+    // Tăng download count trong MySQL
     await executeQuery(
       `UPDATE files SET download_count = download_count + 1 WHERE id = ?`,
       [fileId]
     );
+
+    const newDownloadCount = file.download_count + 1;
+
+    // Cập nhật download count vào Firestore để realtime sync
+    try {
+      const admin = require('../config/firebaseAdmin');
+      const db = admin.firestore();
+      
+      // Lấy Firestore group ID từ mapping
+      const [mapping] = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [file.group_id]
+      );
+      
+      if (mapping && mapping.firestore_id) {
+        const firestoreGroupId = mapping.firestore_id;
+        
+        // Tìm file document trong Firestore
+        const filesSnapshot = await db.collection('groups')
+          .doc(firestoreGroupId)
+          .collection('files')
+          .where('fileId', '==', fileId)
+          .get();
+        
+        if (!filesSnapshot.empty) {
+          const fileDoc = filesSnapshot.docs[0];
+          await fileDoc.ref.update({
+            downloadCount: newDownloadCount,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+          console.log(`✅ Updated download count in Firestore: ${newDownloadCount}`);
+        } else {
+          console.warn(`⚠️ File ${fileId} not found in Firestore`);
+        }
+      } else {
+        console.warn(`⚠️ Group mapping not found for group ${file.group_id}`);
+      }
+    } catch (firestoreError) {
+      console.error('❌ Failed to update Firestore (non-critical):', firestoreError);
+      // Don't fail the request if Firestore update fails
+    }
 
     // Log activity
     await executeQuery(
@@ -760,8 +801,6 @@ const trackDownload = async (req, res) => {
        VALUES (?, 'download', ?, JSON_OBJECT('file_name', ?), NOW())`,
       [userId, fileId.toString(), file.name]
     );
-
-    const newDownloadCount = file.download_count + 1;
 
     console.log(`✅ Download tracked: ${file.name} - Total downloads: ${newDownloadCount}`);
 

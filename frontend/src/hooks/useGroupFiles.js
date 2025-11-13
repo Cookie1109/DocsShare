@@ -201,18 +201,42 @@ export const useGroupFiles = (selectedGroup) => {
         const changes = snapshot.docChanges();
         if (changes.length > 0) {
           const hasNewFile = changes.some(change => change.type === 'added');
-          const hasModifiedFile = changes.some(change => change.type === 'modified');
           const hasRemovedFile = changes.some(change => change.type === 'removed');
           
-          if (hasNewFile) {
-            console.log('🆕 New file detected, refreshing file list...');
+          if (hasNewFile || hasRemovedFile) {
+            // New file added or file removed - fetch full list
+            console.log('🆕 File added/removed, refreshing file list...');
             fetchFiles(selectedGroup);
-          } else if (hasModifiedFile) {
-            console.log('✏️ File modified, refreshing file list...');
-            fetchFiles(selectedGroup);
-          } else if (hasRemovedFile) {
-            console.log('🗑️ File removed, refreshing file list...');
-            fetchFiles(selectedGroup);
+          } else {
+            // Only modifications (e.g., downloadCount update) - update specific fields
+            changes.forEach(change => {
+              if (change.type === 'modified') {
+                const firestoreData = change.doc.data();
+                const fileId = firestoreData.fileId;
+                
+                console.log(`✏️ File ${fileId} modified in Firestore:`, firestoreData);
+                
+                // Update download count in local state without full refetch
+                setRawGroupFiles(prev => {
+                  const groupFiles = prev[selectedGroup] || [];
+                  const updatedFiles = groupFiles.map(file => {
+                    if (file.id === fileId && firestoreData.downloadCount !== undefined) {
+                      console.log(`📊 Updating download count for ${file.name}: ${file.downloadCount || 0} → ${firestoreData.downloadCount}`);
+                      return {
+                        ...file,
+                        downloadCount: firestoreData.downloadCount
+                      };
+                    }
+                    return file;
+                  });
+                  
+                  return {
+                    ...prev,
+                    [selectedGroup]: updatedFiles
+                  };
+                });
+              }
+            });
           }
         }
       },
