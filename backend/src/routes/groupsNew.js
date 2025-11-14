@@ -427,7 +427,18 @@ router.delete('/:groupId/members/:userId', async (req, res) => {
       }
     }
     
-    // Remove from Firebase Firestore FIRST (for real-time UI update)
+    // STEP 1: Remove from MySQL FIRST (source of truth)
+    console.log(`🗄️ Removing user ${userId} from MySQL group ${mysqlGroupId}...`);
+    const result = await Group.removeMember(mysqlGroupId, userId, removedBy);
+    
+    if (!result.success) {
+      console.error('❌ MySQL removal failed:', result.error);
+      return res.status(400).json(result);
+    }
+    
+    console.log(`✅ Removed user ${userId} from MySQL group ${mysqlGroupId}`);
+
+    // STEP 2: Sync to Firebase Firestore (for real-time UI update)
     if (firestoreGroupId) {
       try {
         const admin = require('../config/firebaseAdmin');
@@ -446,33 +457,22 @@ router.delete('/:groupId/members/:userId', async (req, res) => {
           });
           await batch.commit();
           
-          console.log(`✅ Removed user ${userId} from Firebase group ${firestoreGroupId} (${memberSnapshot.size} document(s))`);
+          console.log(`✅ Synced removal to Firestore (${memberSnapshot.size} document(s))`);
         } else {
           console.log(`⚠️ No Firebase document found for user ${userId} in group ${firestoreGroupId}`);
         }
       } catch (firebaseError) {
-        console.error('❌ Failed to remove from Firebase:', firebaseError);
-        // Return error - don't proceed with MySQL if Firebase fails
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to remove member from real-time system'
-        });
+        console.error('❌ Failed to sync to Firestore (non-critical):', firebaseError);
+        console.error('⚠️ DATA MISMATCH: Member removed from MySQL but still in Firestore!');
+        // Don't fail request - MySQL is source of truth
       }
     }
     
-    // Remove from MySQL (after Firebase is successful)
-    const result = await Group.removeMember(mysqlGroupId, userId, removedBy);
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      console.error('❌ MySQL removal failed after Firebase success');
-      // Return success anyway since Firebase (real-time) succeeded
-      res.json({
-        success: true,
-        message: 'Member removed successfully (real-time updated)'
-      });
-    }
+    // Return success since MySQL succeeded
+    res.json({
+      success: true,
+      message: 'Member removed successfully'
+    });
   } catch (error) {
     console.error('Remove member error:', error);
     res.status(500).json({
@@ -544,7 +544,18 @@ router.post('/:groupId/leave', async (req, res) => {
       }
     }
     
-    // Remove from Firebase Firestore FIRST (for real-time UI update)
+    // STEP 1: Remove from MySQL FIRST (source of truth)
+    console.log(`🗄️ Removing user ${userId} from MySQL group ${mysqlGroupId}...`);
+    const result = await Group.removeMember(mysqlGroupId, userId, userId);
+    
+    if (!result.success) {
+      console.error('❌ MySQL removal failed:', result.error);
+      return res.status(400).json(result);
+    }
+    
+    console.log(`✅ Removed user ${userId} from MySQL group ${mysqlGroupId}`);
+
+    // STEP 2: Sync to Firebase Firestore (for real-time UI update)
     try {
       const admin = require('../config/firebaseAdmin');
       const db = admin.firestore();
@@ -563,33 +574,23 @@ router.post('/:groupId/leave', async (req, res) => {
         });
         await batch.commit();
         
-        console.log(`✅ Removed user ${userId} from Firebase group ${firestoreGroupId} (${memberSnapshot.size} document(s))`);
+        console.log(`✅ Synced removal to Firebase group ${firestoreGroupId} (${memberSnapshot.size} document(s))`);
       } else {
         console.log(`⚠️ No Firebase document found for user ${userId} in group ${firestoreGroupId}`);
       }
     } catch (firebaseError) {
-      console.error('❌ Failed to remove from Firebase:', firebaseError);
-      // Return error - don't proceed with MySQL if Firebase fails
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to remove member from real-time system'
-      });
+      console.error('❌ Failed to sync to Firebase (non-critical):', firebaseError);
+      console.error('⚠️ DATA MISMATCH: Member removed from MySQL but still in Firebase!');
+      // Don't fail the request - MySQL is source of truth
+      // Background sync will fix this later
     }
 
-    // Remove from MySQL (after Firebase is successful)
-    const result = await Group.removeMember(mysqlGroupId, userId, userId);
+    // Return success since MySQL (source of truth) succeeded
+    res.json({
+      success: true,
+      message: 'Left group successfully'
+    });
     
-    if (result.success) {
-      res.json(result);
-    } else {
-      console.error('❌ MySQL removal failed after Firebase success');
-      console.error('⚠️ DATA MISMATCH: Member removed from Firebase but still in MySQL!');
-      // Return success anyway since Firebase (real-time) succeeded
-      res.json({
-        success: true,
-        message: 'Left group successfully (real-time updated)'
-      });
-    }
   } catch (error) {
     console.error('Leave group error:', error);
     res.status(500).json({
@@ -713,7 +714,16 @@ router.put('/:groupId/settings/approval', async (req, res) => {
       });
     }
     
-    // Update Firebase first
+    // Update MySQL FIRST (source of truth)
+    console.log(`🗄️ Updating approval mode in MySQL for group ${mysqlGroupId}...`);
+    await executeQuery(
+      `UPDATE \`groups\` SET require_member_approval = ? WHERE id = ?`,
+      [requireApproval ? 1 : 0, mysqlGroupId]
+    );
+    
+    console.log(`✅ Updated approval mode in MySQL for group ${mysqlGroupId}`);
+    
+    // Sync to Firebase
     try {
       const admin = require('../config/firebaseAdmin');
       const db = admin.firestore();
@@ -723,28 +733,9 @@ router.put('/:groupId/settings/approval', async (req, res) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
       
-      console.log(`✅ Updated approval mode in Firebase for group ${firestoreGroupId}`);
-    } catch (firebaseError) {
-      console.error('❌ Failed to update Firebase:', firebaseError);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to update approval settings'
-      });
-    }
-    
-    // Update MySQL
-    await executeQuery(
-      `UPDATE \`groups\` SET require_member_approval = ? WHERE id = ?`,
-      [requireApproval ? 1 : 0, mysqlGroupId]
-    );
-    
-    console.log(`✅ Updated approval mode in MySQL for group ${mysqlGroupId}`);
-    
-    // Create system message
-    try {
-      const admin = require('../config/firebaseAdmin');
-      const db = admin.firestore();
+      console.log(`✅ Synced approval mode to Firestore for group ${firestoreGroupId}`);
       
+      // Create system message
       const statusText = requireApproval ? 'bật' : 'tắt';
       await db.collection('groups').doc(firestoreGroupId).collection('messages').add({
         type: 'system',
@@ -752,8 +743,11 @@ router.put('/:groupId/settings/approval', async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         isSystemMessage: true
       });
-    } catch (err) {
-      console.error('Failed to create system message:', err);
+      console.log(`✅ Created system message in Firestore`);
+    } catch (firebaseError) {
+      console.error('❌ Failed to sync to Firestore (non-critical):', firebaseError);
+      console.error('⚠️ DATA MISMATCH: Approval mode updated in MySQL but not in Firestore!');
+      // Don't fail request - MySQL is source of truth
     }
     
     res.json({
@@ -901,7 +895,7 @@ router.post('/:groupId/pending-members/:userId/approve', async (req, res) => {
     const admin = require('../config/firebaseAdmin');
     const db = admin.firestore();
     
-    // Get pending member info
+    // Get pending member info first (read-only)
     const pendingSnapshot = await db.collection('pending_members')
       .where('groupId', '==', firestoreGroupId)
       .where('userId', '==', userId)
@@ -915,38 +909,50 @@ router.post('/:groupId/pending-members/:userId/approve', async (req, res) => {
       });
     }
     
-    // Add to group_members in Firebase
-    await db.collection('group_members').add({
-      groupId: firestoreGroupId,
-      userId: userId,
-      role: 'member',
-      joinedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-    
-    // Add to MySQL
+    // STEP 1: Add to MySQL FIRST (source of truth)
+    console.log(`🗄️ Adding user ${userId} to MySQL group ${mysqlGroupId}...`);
     await executeQuery(
       `INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'member')
        ON DUPLICATE KEY UPDATE role = role`,
       [mysqlGroupId, userId]
     );
+    console.log(`✅ Added user ${userId} to MySQL group ${mysqlGroupId}`);
     
-    // Delete pending member
-    const pendingDoc = pendingSnapshot.docs[0];
-    await pendingDoc.ref.delete();
-    
-    // Get user name for system message
-    const userDoc = await db.collection('users').doc(userId).get();
-    const userName = userDoc.exists ? (userDoc.data().displayName || 'Người dùng') : 'Người dùng';
-    
-    // Create system message
-    await db.collection('groups').doc(firestoreGroupId).collection('messages').add({
-      type: 'system',
-      content: `${userName} đã được phê duyệt và tham gia nhóm`,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      userId: userId,
-      userName: userName,
-      isSystemMessage: true
-    });
+    // STEP 2: Sync to Firestore (for real-time UI)
+    try {
+      // Add to group_members
+      await db.collection('group_members').add({
+        groupId: firestoreGroupId,
+        userId: userId,
+        role: 'member',
+        joinedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      console.log(`✅ Synced to Firestore group_members`);
+      
+      // Delete pending member
+      const pendingDoc = pendingSnapshot.docs[0];
+      await pendingDoc.ref.delete();
+      console.log(`✅ Deleted pending member from Firestore`);
+      
+      // Get user name for system message
+      const userDoc = await db.collection('users').doc(userId).get();
+      const userName = userDoc.exists ? (userDoc.data().displayName || 'Người dùng') : 'Người dùng';
+      
+      // Create system message
+      await db.collection('groups').doc(firestoreGroupId).collection('messages').add({
+        type: 'system',
+        content: `${userName} đã được phê duyệt và tham gia nhóm`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        userId: userId,
+        userName: userName,
+        isSystemMessage: true
+      });
+      console.log(`✅ Created system message in Firestore`);
+    } catch (firestoreError) {
+      console.error('❌ Failed to sync to Firestore (non-critical):', firestoreError);
+      console.error('⚠️ DATA MISMATCH: Member approved in MySQL but not synced to Firestore!');
+      // Don't fail request - MySQL is source of truth
+    }
     
     res.json({
       success: true,

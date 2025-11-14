@@ -7,6 +7,7 @@ import {
   Plus, Image as ImageIcon, Check, Loader, Clock
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useGroupFiles } from '../../hooks/useGroupFiles';
 import CreateGroupModal from './CreateGroupModal';
 import AddMemberModal from './AddMemberModal';
 import GroupSettings from './GroupSidebar/GroupSettings';
@@ -41,6 +42,9 @@ const GroupSidebar = ({ group, onClose }) => {
   const [pendingMembersCount, setPendingMembersCount] = useState(0);
   
   const { userGroups, selectedGroup, groupMembers, selectGroup, addMemberToGroup, removeMemberFromGroup, updateMemberRoleInGroup, checkUserRole, deleteGroup, leaveGroup, user } = useAuth();
+
+  // Get files for the selected group
+  const { files: groupFiles = [] } = useGroupFiles(selectedGroup);
 
   // Get current group data - prioritize real-time data, then context, then prop
   const currentGroup = realtimeGroupData || userGroups.find(g => g.id === selectedGroup) || group;
@@ -166,59 +170,6 @@ const GroupSidebar = ({ group, onClose }) => {
 
     return () => unsubscribe();
   }, [selectedGroup, user?.uid, groupMembers]);
-
-  const groupFiles = [
-    { 
-      id: 1, 
-      name: 'React Hooks Guide.pdf', 
-      size: '2.5 MB', 
-      type: 'pdf', 
-      uploadedBy: 'Nguyen Van A', 
-      uploadDate: '2024-03-20',
-      tags: ['Học tập', 'React'],
-      description: 'Hướng dẫn chi tiết về React Hooks'
-    },
-    { 
-      id: 2, 
-      name: 'Database Design.pptx', 
-      size: '4.1 MB', 
-      type: 'pptx', 
-      uploadedBy: 'Tran Thi B', 
-      uploadDate: '2024-03-18',
-      tags: ['Dự án', 'Database'],
-      description: 'Thiết kế cơ sở dữ liệu cho dự án'
-    },
-    { 
-      id: 3, 
-      name: 'Assignment_1.docx', 
-      size: '856 KB', 
-      type: 'docx', 
-      uploadedBy: 'Le Van C', 
-      uploadDate: '2024-03-15',
-      tags: ['Bài tập'],
-      description: 'Bài tập số 1 môn lập trình'
-    },
-    { 
-      id: 4, 
-      name: 'UI_Design.fig', 
-      size: '1.2 MB', 
-      type: 'fig', 
-      uploadedBy: 'Nguyen Van A', 
-      uploadDate: '2024-03-12',
-      tags: ['Thiết kế', 'UI/UX'],
-      description: 'Mockup giao diện người dùng'
-    },
-    { 
-      id: 5, 
-      name: 'source_code.zip', 
-      size: '15.8 MB', 
-      type: 'zip', 
-      uploadedBy: 'Tran Thi B', 
-      uploadDate: '2024-03-10',
-      tags: ['Source code', 'Dự án'],
-      description: 'Source code hoàn chỉnh của dự án'
-    },
-  ];
 
   const availableTags = ['Tất cả', 'Học tập', 'Dự án', 'Bài tập', 'Thiết kế', 'UI/UX', 'Source code', 'Database', 'React'];
 

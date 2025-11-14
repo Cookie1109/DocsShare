@@ -223,7 +223,7 @@ router.get('/:firestoreGroupId/tags', async (req, res) => {
 
 /**
  * POST /api/firebase-groups/:firestoreGroupId/tags
- * Create tag for a Firebase group - FIREBASE FIRST approach
+ * Create tag for a Firebase group - MySQL FIRST approach
  */
 router.post('/:firestoreGroupId/tags', async (req, res) => {
   try {
