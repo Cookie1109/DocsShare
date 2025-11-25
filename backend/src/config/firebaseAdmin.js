@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 if (!admin.apps.length) {
   try {
     // Use the service account JSON file directly
-    const serviceAccountPath = require('path').join(__dirname, '../../docsshare-35adb-firebase-adminsdk-fbsvc-5409f13b9a.json');
+    const serviceAccountPath = require('path').join(__dirname, '../../docsshare-35adb-firebase-adminsdk-fbsvc-fd8bf7b45f.json');
     
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccountPath),

@@ -22,6 +22,7 @@ const firebaseUserRoutes = require('./src/routes/firebaseUsers');
 const invitationRoutes = require('./src/routes/invitations');
 const profileRoutes = require('./src/routes/profile');
 const syncRoutes = require('./src/routes/sync');
+const chatbotRoutes = require('./src/routes/chatbot');
 
 // Import Sync Service
 const syncService = require('./src/config/syncService');
@@ -175,6 +176,13 @@ try {
   console.log('✅ Sync routes loaded');
 } catch (error) {
   console.error('❌ Error loading sync routes:', error.message);
+}
+
+try {
+  app.use('/api/chatbot', chatbotRoutes);
+  console.log('✅ Chatbot routes loaded');
+} catch (error) {
+  console.error('❌ Error loading chatbot routes:', error.message);
 }
 
 console.log('📝 All routes loading completed');

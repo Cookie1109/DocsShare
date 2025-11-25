@@ -27,12 +27,33 @@ const verifyFirebaseToken = async (req, res, next) => {
     // Verify Firebase ID token với Admin SDK
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     
+    // Lấy thêm thông tin user từ Firestore để có username và userTag
+    let username = decodedToken.name || decodedToken.email || 'Unknown User';
+    let userTag = '0000';
+    
+    try {
+      const userDoc = await admin.firestore().collection('users').doc(decodedToken.uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        if (userData.username) {
+          username = userData.username; // Đã có format Name#Tag
+        } else if (userData.displayName && userData.userTag) {
+          username = `${userData.displayName}#${userData.userTag}`;
+        }
+        userTag = userData.userTag || '0000';
+      }
+    } catch (firestoreError) {
+      console.warn('⚠️ Could not fetch user data from Firestore:', firestoreError.message);
+    }
+    
     // Attach user info to request
     req.user = {
       id: decodedToken.uid,  // Alias for compatibility
       uid: decodedToken.uid,
       email: decodedToken.email,
       displayName: decodedToken.name || decodedToken.email || 'Unknown User',
+      username: username, // Name#Tag format
+      userTag: userTag,
       avatar: decodedToken.picture || null,
       emailVerified: decodedToken.email_verified || false
     };

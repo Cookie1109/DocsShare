@@ -1,6 +1,7 @@
 import React from 'react';
 import Header from './Header';
 import Footer from './Footer';
+import ChatbotButton from '../Chatbot/ChatbotButton';
 
 const Layout = ({ children, user, onLogout }) => {
   return (
@@ -10,6 +11,9 @@ const Layout = ({ children, user, onLogout }) => {
         {children}
       </main>
       <Footer />
+      
+      {/* Chatbot Button - chỉ hiển thị khi user đã đăng nhập */}
+      {user && <ChatbotButton />}
     </div>
   );
 };

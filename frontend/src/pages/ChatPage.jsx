@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ChatSidebar from '../components/Chat/ChatSidebar';
 import ChatArea from '../components/Chat/ChatArea';
 import InvitationNotifications from '../components/Chat/InvitationNotifications';
+import ChatbotButton from '../components/Chatbot/ChatbotButton';
 import { useAuth } from '../contexts/AuthContext';
 import { Users, Settings, LogOut, User, Edit2, Camera, X } from 'lucide-react';
 import Logo from '../assets/Logo.png';
@@ -547,6 +548,9 @@ const ChatPage = () => {
           </div>
         </div>
       )}
+      
+      {/* Chatbot Button */}
+      <ChatbotButton />
     </div>
   );
 };
