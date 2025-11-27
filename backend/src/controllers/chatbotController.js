@@ -189,7 +189,7 @@ LƯU Ý:
 - Ngày hôm nay: ${new Date().toLocaleDateString('vi-VN')}
 - Luôn trả về valid JSON`;
 
-      // Dùng gemini-2.0-flash - model mới nhất
+      // Dùng gemini-2.5-flash - model mới nhất có sẵn
       const model = genAI.getGenerativeModel({ model: 'models/gemini-2.5-flash' });
       
       const prompt = `${systemPrompt}\n\nNgười dùng hỏi: ${message}`;
