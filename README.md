@@ -1,82 +1,63 @@
-# 📚 DocsShare - Nền tảng chia sẻ tài liệu thông minh
+# DocsShare
 
-Một ứng dụng web hiện đại cho phép chia sẻ và quản lý tài liệu trong nhóm với giao diện trực quan, hệ thống tag thông minh và lưu trữ đám mây.
+Ứng dụng chia sẻ tài liệu với AI Chatbot hỗ trợ tìm kiếm thông minh, sử dụng Firebase Authentication và MySQL database.
 
-## 🚀 Tính năng nổi bật
+## 📋 Mục lục
 
-- 🏷️ **Smart Tagging**: Tự động tạo và quản lý tags cho files
-- ☁️ **Cloud Storage**: Lưu trữ files trên Cloudinary
-- 👥 **Group Management**: Quản lý nhóm và thành viên
-- 🔍 **Advanced Search**: Tìm kiếm files theo tags, loại file, thời gian
-- 📊 **Activity Tracking**: Theo dõi hoạt động upload, download
-- 🔐 **Firebase Auth**: Xác thực người dùng an toàn
-- 📱 **Responsive Design**: Giao diện thân thiện trên mọi thiết bị
+- [Tính năng](#tính-năng)
+- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
+- [Yêu cầu hệ thống](#yêu-cầu-hệ-thống)
+- [Cài đặt](#cài-đặt)
+- [Cấu hình](#cấu-hình)
+- [Chạy ứng dụng](#chạy-ứng-dụng)
+- [Cấu trúc thư mục](#cấu-trúc-thư-mục)
+- [API Documentation](#api-documentation)
+
+## ✨ Tính năng
+
+- 🔐 Xác thực người dùng với Firebase Authentication
+- 📁 Upload và quản lý tài liệu (PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, ZIP, RAR)
+- 👥 Tạo và quản lý nhóm chia sẻ
+- 🏷️ Gắn tags cho tài liệu
+- 🤖 AI Chatbot hỗ trợ tìm kiếm tài liệu thông minh (Gemini AI)
+- 💬 Chat realtime trong nhóm
+- 📊 Theo dõi hoạt động và thống kê
+- ☁️ Lưu trữ file trên Cloudinary
+- 🔄 Đồng bộ dữ liệu giữa Firebase và MySQL
 
 ## 🛠️ Công nghệ sử dụng
 
 ### Frontend
-- **React 18**: Framework UI hiện đại
-- **Vite**: Build tool nhanh chóng  
-- **TailwindCSS v4**: Styling utility-first
-- **React Router**: Navigation
-- **Lucide React**: Icons đẹp và nhất quán
+- React 19.1.1
+- Vite 7.1.2
+- React Router DOM 7.8.2
+- Tailwind CSS 4.1.13
+- Axios 1.13.1
+- Lucide React (Icons)
 
 ### Backend
-- **Node.js**: Runtime JavaScript server-side
-- **Express.js**: Web framework RESTful API
-- **MySQL**: Relational database với schema chuẩn hóa
-- **Cloudinary**: Cloud storage cho files
-- **Firebase Admin**: Authentication và user management
-- **Multer**: File upload middleware
+- Node.js + Express 5.1.0
+- Firebase Admin SDK 13.6.0
+- MySQL2 3.15.3
+- Google Generative AI 0.24.1 (Gemini)
+- Cloudinary 1.41.3
+- JWT Authentication
+- Multer (File upload)
 
-### Database & Storage
-- **MySQL**: Primary database với schema tối ưu
-- **Cloudinary**: Cloud file storage và CDN
-- **Firebase Auth**: Service xác thực người dùng
+### Database
+- MySQL (Primary database)
+- Firebase Realtime Database (Realtime sync)
 
-## 📋 Tính năng chi tiết
+## 📦 Yêu cầu hệ thống
 
-### 🔐 Authentication & User Management
-- Đăng nhập/đăng ký với Firebase Auth
-- Profile management với display name và tag duy nhất
-- Avatar upload và quản lý
+- Node.js >= 18.x
+- npm >= 9.x
+- MySQL >= 8.0
+- Firebase Project
+- Cloudinary Account
+- Google AI Studio API Key (Gemini)
 
-### � Group Management  
-- Tạo và quản lý nhóm
-- Mời thành viên vào nhóm
-- Phân quyền thành viên (creator, member)
-- Rời nhóm và xóa nhóm
-
-### 📁 File Management
-- Upload files lên Cloudinary cloud storage
-- Download files với tracking số lượt tải
-- Xóa files (chỉ người upload và admin)
-- Hỗ trợ mọi loại file (PDF, Word, Excel, hình ảnh, v.v.)
-
-### 🏷️ Smart Tagging System
-- **Auto-create tags**: Tự động tạo tags từ tên người dùng nhập
-- **Tag reuse**: Sử dụng lại tags có sẵn trong nhóm
-- **Group-scoped**: Tags riêng biệt cho từng nhóm
-- **Flexible input**: Hỗ trợ nhiều format input (JSON, comma-separated)
-
-### � Advanced Search & Filter
-- Tìm kiếm files theo tags
-- Lọc theo loại file (PDF, Word, Excel, v.v.)
-- Sắp xếp theo thời gian, tên, lượt download
-- Phân trang kết quả tìm kiếm
-
-### 📊 Activity Tracking
-- Ghi lại mọi hoạt động: upload, download, tạo nhóm, gắn tag
-- Thống kê hoạt động của nhóm
-- Audit trail đầy đủ cho quản trị
-
-## 🚀 Cài đặt và chạy dự án
-
-### Yêu cầu hệ thống
-- Node.js 18+ 
-- MySQL 8.0+
-- Cloudinary account (free)
-- Firebase project
+## 🚀 Cài đặt
 
 ### 1. Clone repository
 
@@ -85,205 +66,274 @@ git clone https://github.com/Cookie1109/DocsShare.git
 cd DocsShare
 ```
 
-### 2. Cài đặt Database
+### 2. Cài đặt dependencies
 
+#### Root project
 ```bash
-# Tạo database MySQL
-mysql -u root -p
-CREATE DATABASE docsshare_db;
-
-# Import schema
-mysql -u root -p docsshare_db < docsshare_db.sql
+npm install
 ```
 
-### 3. Backend Setup
-
+#### Backend
 ```bash
 cd backend
 npm install
-
-# Tạo file .env
-cp .env.example .env
-# Điền thông tin:
-# - MySQL connection
-# - Cloudinary credentials  
-# - Firebase admin config
-
-npm start
 ```
 
-Server chạy tại: http://localhost:5000
-
-### 4. Frontend Setup
-
+#### Frontend
 ```bash
 cd frontend
 npm install
+```
 
-# Cấu hình Firebase config trong src/config/firebase.js
+## ⚙️ Cấu hình
+
+### 1. Tạo MySQL Database
+
+```sql
+CREATE DATABASE docsshare CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+Chạy migration file để tạo các bảng:
+
+```bash
+mysql -u root -p docsshare < backend/migrations/docsshare_db.sql
+```
+
+### 2. Cấu hình Firebase
+
+1. Tạo project tại [Firebase Console](https://console.firebase.google.com)
+2. Bật **Authentication** (Email/Password và Google)
+3. Bật **Realtime Database**
+4. Tải **Service Account Key** (Settings > Service Accounts > Generate new private key)
+5. Lưu file JSON vào `backend/` với tên `docsshare-35adb-firebase-adminsdk-fbsvc-fd8bf7b45f.json` (hoặc đổi tên trong code)
+
+### 3. Cấu hình Cloudinary
+
+1. Tạo tài khoản tại [Cloudinary](https://cloudinary.com)
+2. Lấy **Cloud Name**, **API Key**, **API Secret** từ Dashboard
+
+### 4. Cấu hình Google AI (Gemini)
+
+1. Truy cập [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Tạo API Key mới
+
+### 5. Tạo file `.env` cho Backend
+
+Tạo file `backend/.env`:
+
+```env
+# Server Configuration
+PORT=5000
+NODE_ENV=development
+FRONTEND_URL=http://localhost:5174
+
+# JWT Configuration
+JWT_SECRET=your_super_secret_key_here
+JWT_EXPIRES_IN=7d
+
+# File Upload Configuration
+MAX_FILE_SIZE=26214400
+ALLOWED_FILE_TYPES=pdf,doc,docx,ppt,pptx,xls,xlsx,zip,rar
+
+# Cloudinary Configuration
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+
+# Firebase Configuration
+FIREBASE_API_KEY=your_firebase_api_key
+FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
+FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+FIREBASE_APP_ID=your_app_id
+
+# Firebase Admin SDK
+FIREBASE_ADMIN_TYPE=service_account
+FIREBASE_ADMIN_PROJECT_ID=your-project-id
+FIREBASE_ADMIN_PRIVATE_KEY_ID=your_private_key_id
+FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nyour_private_key_here\n-----END PRIVATE KEY-----\n"
+FIREBASE_ADMIN_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
+FIREBASE_ADMIN_CLIENT_ID=your_client_id
+
+# MySQL Database Configuration
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=docsshare
+DB_PORT=3306
+DB_CONNECTION_LIMIT=10
+DB_QUEUE_LIMIT=0
+
+# CORS Configuration
+CORS_ORIGIN=http://localhost:5173
+
+# API Configuration
+API_VERSION=v1
+
+# Gemini AI Configuration
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+### 6. Cấu hình Frontend
+
+Tạo file `frontend/.env`:
+
+```env
+VITE_API_URL=http://localhost:5000/api
+VITE_FIREBASE_API_KEY=your_firebase_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+VITE_FIREBASE_DATABASE_URL=https://your-project.firebaseio.com
+```
+
+## 🏃 Chạy ứng dụng
+
+### Development Mode
+
+#### Chạy Backend
+```bash
+cd backend
+npm start
+# hoặc với nodemon
 npm run dev
 ```
 
-Frontend chạy tại: http://localhost:5173
+Backend sẽ chạy tại: `http://localhost:5000`
 
-## 📁 Cấu trúc dự án
+#### Chạy Frontend
+```bash
+cd frontend
+npm run dev
+```
+
+Frontend sẽ chạy tại: `http://localhost:5173`
+
+### Production Build
+
+#### Build Frontend
+```bash
+cd frontend
+npm run build
+```
+
+#### Chạy Backend (Production)
+```bash
+cd backend
+NODE_ENV=production npm start
+```
+
+## 📁 Cấu trúc thư mục
 
 ```
 DocsShare/
-├── 📁 frontend/                 # React frontend
+├── backend/
 │   ├── src/
-│   │   ├── components/         # React components
-│   │   │   ├── Chat/          # Chat và messaging
-│   │   │   └── Layout/        # Layout components
-│   │   ├── pages/             # Page components
-│   │   ├── contexts/          # React contexts (Auth)
-│   │   ├── services/          # API services
-│   │   └── config/            # Firebase config
-│   └── public/                # Static assets
-├── 📁 backend/                 # Node.js + Express API
+│   │   ├── config/           # Database, Firebase, Cloudinary config
+│   │   ├── controllers/      # Route controllers
+│   │   ├── middleware/       # Authentication & validation
+│   │   ├── models/          # Database models
+│   │   └── routes/          # API routes
+│   ├── migrations/          # Database migrations
+│   ├── uploads/             # Temporary file uploads
+│   ├── server.js           # Entry point
+│   ├── .env                # Environment variables (không commit)
+│   └── package.json
+│
+├── frontend/
 │   ├── src/
-│   │   ├── controllers/       # API controllers
-│   │   ├── models/           # Database models
-│   │   ├── routes/           # API routes
-│   │   ├── middleware/       # Auth & upload middleware
-│   │   └── config/           # DB & Cloudinary config
-│   └── server.js             # Main server file
-├── 📁 examples/               # Documentation & examples
-├── 📄 docsshare_db.sql       # Database schema
-└── 📄 README.md
+│   │   ├── components/      # React components
+│   │   ├── pages/          # Page components
+│   │   ├── services/       # API services
+│   │   ├── contexts/       # React contexts
+│   │   ├── hooks/          # Custom hooks
+│   │   ├── config/         # Firebase config
+│   │   └── assets/         # Static assets
+│   ├── public/
+│   ├── .env                # Environment variables (không commit)
+│   └── package.json
+│
+├── .gitignore
+├── package.json
+└── README.md
 ```
 
-## 🎨 API Endpoints
+## 📚 API Documentation
 
 ### Authentication
-- `POST /api/auth/register` - Đăng ký người dùng mới
+- `POST /api/auth/register` - Đăng ký tài khoản
 - `POST /api/auth/login` - Đăng nhập
-- `GET /api/auth/profile` - Lấy thông tin profile
+- `GET /api/auth/me` - Lấy thông tin user hiện tại
+
+### Users
+- `GET /api/users` - Lấy danh sách users
+- `GET /api/users/:id` - Lấy thông tin user
+- `PUT /api/users/:id` - Cập nhật thông tin user
 
 ### Groups
-- `GET /api/groups` - Lấy danh sách nhóm của user
+- `GET /api/groups` - Lấy danh sách nhóm
 - `POST /api/groups` - Tạo nhóm mới
-- `POST /api/groups/:id/join` - Tham gia nhóm
-- `DELETE /api/groups/:id/leave` - Rời nhóm
+- `GET /api/groups/:id` - Lấy thông tin nhóm
+- `PUT /api/groups/:id` - Cập nhật nhóm
+- `DELETE /api/groups/:id` - Xóa nhóm
 
-### Files  
-- `POST /api/files/upload` - Upload file với smart tagging
-- `GET /api/groups/:groupId/files` - Lấy files của nhóm
-- `GET /api/files/:id/download` - Download file
+### Files
+- `GET /api/files` - Lấy danh sách files
+- `POST /api/files/upload` - Upload file
+- `GET /api/files/:id` - Lấy thông tin file
 - `DELETE /api/files/:id` - Xóa file
+- `GET /api/files/:id/download` - Download file
 
 ### Tags
-- `GET /api/groups/:groupId/tags` - Lấy tags của nhóm
+- `GET /api/tags` - Lấy danh sách tags
 - `POST /api/tags` - Tạo tag mới
-- `GET /api/tags/:id/files` - Lấy files theo tag
+- `PUT /api/tags/:id` - Cập nhật tag
+- `DELETE /api/tags/:id` - Xóa tag
 
-### Activity
-- `GET /api/activities` - Lấy log hoạt động
+### Chatbot
+- `POST /api/chatbot/chat` - Gửi tin nhắn đến AI chatbot
+- `GET /api/chatbot/stats` - Lấy thống kê files
 
-## 🏷️ Smart Tagging Usage
+### Activities
+- `GET /api/activities` - Lấy lịch sử hoạt động
 
-```javascript
-// Upload file với tags
-const formData = new FormData();
-formData.append('file', fileBlob);
-formData.append('group_id', '123');
-formData.append('tag_names', JSON.stringify([
-  'báo cáo', 'tài chính', 'Q3-2024'
-]));
+## 🔒 Bảo mật
 
-fetch('/api/files/upload', {
-  method: 'POST',
-  body: formData
-});
-```
-
-## 📊 Trạng thái phát triển
-
-### ✅ Hoàn thành
-- **Backend API**: Full RESTful API với Express.js
-- **Database**: MySQL schema với relationships đầy đủ
-- **Authentication**: Firebase Auth integration
-- **File Storage**: Cloudinary cloud storage
-- **Smart Tagging**: Auto-create và manage tags
-- **Group Management**: Tạo, join, leave nhóm
-- **Activity Logging**: Comprehensive audit trail
-- **Search & Filter**: Advanced file search
-
-### 🚧 Đang phát triển
-- **Frontend Integration**: Kết nối React với backend API
-- **Real-time Updates**: WebSocket cho live updates
-- **File Preview**: Preview files trước khi download
-- **Notification System**: Thông báo hoạt động
-
-### 🔮 Kế hoạch tương lai
-- **AI Auto-Tagging**: AI suggest tags cho files
-- **Advanced Analytics**: Thống kê usage và insights
-- **Mobile App**: React Native app
-- **Collaboration Features**: Comments, sharing permissions
-
-## 🎯 Demo & Usage
-
-### Backend API Demo
-```bash
-# Start backend server
-cd backend && npm start
-
-# Test endpoints
-curl http://localhost:5000/api/health
-curl http://localhost:5000/api/groups
-```
-
-### Frontend Demo  
-```bash
-# Start frontend dev server
-cd frontend && npm run dev
-# Mở http://localhost:5173
-```
-
-## 📖 Hướng dẫn sử dụng
-
-1. **Setup**: Cài đặt database và config theo hướng dẫn
-2. **Register**: Tạo tài khoản với Firebase Auth
-3. **Create Group**: Tạo nhóm mới hoặc join nhóm có sẵn
-4. **Upload Files**: Upload files với smart tags
-5. **Search**: Tìm kiếm files theo tags, type, time
-6. **Manage**: Quản lý files, tags và thành viên nhóm
+- ✅ File `.env` đã được thêm vào `.gitignore`
+- ✅ JWT tokens cho authentication
+- ✅ Firebase Admin SDK cho server-side auth
+- ✅ Helmet.js cho security headers
+- ✅ CORS configuration
+- ✅ Input validation với express-validator
 
 ## 🤝 Đóng góp
 
-Chúng tôi hoan nghênh mọi đóng góp! Để đóng góp:
-
-1. Fork repository này
-2. Tạo branch mới: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
+1. Fork project
+2. Tạo feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
 5. Tạo Pull Request
 
-### 📝 Guidelines
-- Viết code rõ ràng và có comment
-- Tuân thủ coding standards hiện tại
-- Thêm tests nếu cần thiết
-- Update documentation khi cần
+## 📝 License
 
-## 🐛 Bug Reports & Feature Requests
+Project này được phát triển cho mục đích học tập.
 
-- **Bug Reports**: Tạo issue với label `bug`
-- **Feature Requests**: Tạo issue với label `enhancement`
-- **Questions**: Tạo issue với label `question`
+## 👥 Tác giả
 
-## 📄 License
+- GitHub: [@Cookie1109](https://github.com/Cookie1109)
 
-MIT License - xem file [LICENSE](LICENSE) để biết thêm chi tiết.
+## 🐛 Báo lỗi
 
-## 🙏 Acknowledgments
+Nếu gặp vấn đề, vui lòng tạo issue tại [GitHub Issues](https://github.com/Cookie1109/DocsShare/issues)
 
-- [React](https://reactjs.org/) - UI Framework
-- [Express.js](https://expressjs.com/) - Backend Framework  
-- [MySQL](https://mysql.com/) - Database
-- [Cloudinary](https://cloudinary.com/) - Cloud Storage
-- [Firebase](https://firebase.google.com/) - Authentication
-- [Lucide Icons](https://lucide.dev/) - Beautiful Icons
-- [TailwindCSS](https://tailwindcss.com/) - CSS Framework
+## 📞 Liên hệ
 
-**DocsShare** - Nền tảng chia sẻ tài liệu thông minh 🚀  
-*Chia sẻ kiến thức, Phát triển cùng nhau*
+- Email: your-email@example.com
+- GitHub: [Cookie1109](https://github.com/Cookie1109)
+
+---
+
+⭐ Nếu thấy project hữu ích, đừng quên star repo nhé!
