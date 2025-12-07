@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Search, UserPlus, Loader, Check, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { auth } from '../../config/firebase';
-import { getFirestore, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 
 const USERS_PER_PAGE = 3;
 
@@ -10,12 +10,44 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
+  const [existingMembers, setExistingMembers] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const searchInputRef = React.useRef(null);
+
+  // Fetch existing members when modal opens
+  useEffect(() => {
+    if (isOpen && groupId) {
+      console.log('🔑 Fetching members for groupId:', groupId);
+      
+      const fetchExistingMembers = async () => {
+        try {
+          const db = getFirestore();
+          
+          // Query group_members collection để lấy tất cả members của group
+          const membersQuery = query(
+            collection(db, 'group_members'),
+            where('groupId', '==', groupId)
+          );
+          
+          const membersSnapshot = await getDocs(membersQuery);
+          
+          // Extract userId từ mỗi member document
+          const memberIds = membersSnapshot.docs.map(doc => doc.data().userId);
+          
+          setExistingMembers(memberIds);
+          console.log('✅ Fetched existing members from group_members:', memberIds);
+        } catch (error) {
+          console.error('❌ Error fetching existing members:', error);
+        }
+      };
+      
+      fetchExistingMembers();
+    }
+  }, [isOpen, groupId]);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -62,48 +94,46 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
         const searchTrimmed = searchQuery.trim();
         let searchName = '';
         let searchTag = '';
+        let searchEmail = '';
         
-        // Check if query contains '#' (tag separator)
+        // Check if query contains '#' (tag separator) - Name#Tag format
         if (searchTrimmed.includes('#')) {
           const parts = searchTrimmed.split('#');
-          searchName = parts[0].toLowerCase().trim();
-          searchTag = parts[1] ? parts[1].toLowerCase().trim() : '';
-          console.log('🏷️ Searching by name + tag:', { searchName, searchTag });
-        } else if (searchTrimmed.startsWith('#')) {
-          // Search by tag only (#2200)
-          searchTag = searchTrimmed.substring(1).toLowerCase().trim();
-          console.log('🏷️ Searching by tag only:', searchTag);
+          searchName = parts[0].trim();
+          searchTag = parts[1] ? parts[1].trim() : '';
+          console.log('🏷️ Exact search by Name#Tag:', { searchName, searchTag });
+        } else if (searchTrimmed.includes('@')) {
+          // Email search - exact match
+          searchEmail = searchTrimmed.toLowerCase();
+          console.log('📧 Exact search by email:', searchEmail);
         } else {
-          // Search by name only (Cookie)
-          searchName = searchTrimmed.toLowerCase();
-          console.log('👤 Searching by name only:', searchName);
+          // Invalid format - need Name#Tag or Email
+          setSearchResults([]);
+          setError('Vui lòng nhập định dạng Tên#Tag (VD: Name#1234) hoặc Email');
+          setIsSearching(false);
+          return;
         }
         
-        // Get all users and filter client-side
+        // Get all users and filter client-side with EXACT match
         const q = query(usersRef, limit(100));
         const snapshot = await getDocs(q);
         
         const results = [];
         snapshot.forEach(doc => {
           const userData = doc.data();
-          const displayName = (userData.displayName || '').toLowerCase();
-          const username = (userData.username || '').toLowerCase(); // Username field (Cookie#2200)
+          const displayName = (userData.displayName || '').trim();
+          const username = (userData.username || '').trim();
           const email = (userData.email || '').toLowerCase();
-          const userTag = (userData.userTag || '').toLowerCase(); // userTag field (2200)
+          const userTag = (userData.userTag || '').trim();
           
           let matches = false;
           
           if (searchName && searchTag) {
-            // Both name and tag provided (Cookie#2200)
-            matches = displayName.includes(searchName) && userTag.includes(searchTag);
-          } else if (searchTag) {
-            // Tag only (#2200)
-            matches = userTag.includes(searchTag);
-          } else if (searchName) {
-            // Name only (Cookie) - search in displayName, username, or email
-            matches = displayName.includes(searchName) || 
-                     username.includes(searchName) || 
-                     email.includes(searchName);
+            // EXACT match for Name#Tag
+            matches = displayName === searchName && userTag === searchTag;
+          } else if (searchEmail) {
+            // EXACT match for Email
+            matches = email === searchEmail;
           }
           
           // Don't include current user in search results
@@ -251,7 +281,7 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm theo tên hoặc tag (VD: Name#1234)"
+              placeholder="Nhập chính xác Tên#Tag (VD: Name#1234) hoặc Email"
               className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 text-sm placeholder:text-gray-400"
             />
             {isSearching && (
@@ -261,8 +291,7 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
           
           {/* Hint */}
           <p className="mt-2 text-xs text-gray-500 flex items-center gap-1">
-            <span className="text-yellow-500">💡</span>
-            Mẹo: Tìm chính xác hơn với tên và tag đầy đủ (VD: Name#1234)
+            Lưu ý: Chỉ tìm kiếm chính xác theo Tên#Tag hoặc Email để tránh spam
           </p>
         </div>
 
@@ -284,15 +313,25 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
               <div className="space-y-2">
                 {paginatedResults.map(user => {
                   const isSelected = selectedUsers.find(u => u.uid === user.uid);
+                  const isExistingMember = existingMembers.includes(user.uid);
+                  
+                  console.log('🔍 Checking user:', {
+                    uid: user.uid,
+                    displayName: user.displayName,
+                    existingMembers: existingMembers,
+                    isExistingMember: isExistingMember
+                  });
                   
                   return (
                     <div
                       key={user.uid}
-                      onClick={() => handleToggleUser(user)}
-                      className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition-all ${
-                        isSelected 
-                          ? 'bg-green-50 border border-green-200' 
-                          : 'bg-gray-50 hover:bg-gray-100 border border-transparent'
+                      onClick={() => !isExistingMember && handleToggleUser(user)}
+                      className={`flex items-center justify-between p-3 rounded-2xl transition-all ${
+                        isExistingMember
+                          ? 'bg-gray-100 border border-gray-200 opacity-60 cursor-not-allowed'
+                          : isSelected 
+                            ? 'bg-green-50 border border-green-200 cursor-pointer' 
+                            : 'bg-gray-50 hover:bg-gray-100 border border-transparent cursor-pointer'
                       }`}
                     >
                       <div className="flex items-center space-x-3 flex-1 min-w-0">
@@ -323,7 +362,11 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
 
                       {/* Select Button */}
                       <div className="flex-shrink-0 ml-3">
-                        {isSelected ? (
+                        {isExistingMember ? (
+                          <div className="px-3 py-1 rounded-full bg-gray-200 text-gray-600 text-xs font-medium">
+                            Đã ở trong nhóm
+                          </div>
+                        ) : isSelected ? (
                           <div className="h-7 w-7 rounded-full bg-green-500 flex items-center justify-center">
                             <Check className="h-4 w-4 text-white" />
                           </div>
@@ -396,8 +439,8 @@ const AddMemberModal = ({ isOpen, onClose, groupId, groupName }) => {
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-50 to-green-100 flex items-center justify-center mx-auto mb-4">
                 <UserPlus className="h-8 w-8 text-green-500" />
               </div>
-              <p className="text-gray-600 font-medium">Nhập tên hoặc tag để tìm kiếm</p>
-              <p className="text-sm text-gray-400 mt-1">Ví dụ: NhanTrong#1234</p>
+              <p className="text-gray-600 font-medium">Nhập Name#Tag hoặc Email để tìm kiếm</p>
+              <p className="text-sm text-gray-400 mt-1">Ví dụ: Name#1234</p>
             </div>
           )}
 
