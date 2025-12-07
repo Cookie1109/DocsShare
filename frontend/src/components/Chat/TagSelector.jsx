@@ -2,8 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Tag, Hash, Trash2, AlertTriangle } from 'lucide-react';
 import tagsService from '../../services/tagsService';
 
-const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, groupId, className = '' }) => {
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+// Convert Tailwind color class to hex
+const getColorHex = (colorClass) => {
+  const colorMap = {
+    'bg-emerald-500': '#10b981',
+    'bg-blue-500': '#3b82f6',
+    'bg-purple-500': '#a855f7',
+    'bg-pink-500': '#ec4899',
+    'bg-red-500': '#ef4444',
+    'bg-yellow-500': '#eab308',
+    'bg-green-500': '#22c55e',
+    'bg-indigo-500': '#6366f1',
+    'bg-orange-500': '#f97316',
+    'bg-teal-500': '#14b8a6',
+    'bg-cyan-500': '#06b6d4',
+    'bg-rose-500': '#f43f5e',
+  };
+  return colorMap[colorClass] || colorClass; // Return original if not found (in case it's already hex)
+};
+
+const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, groupId, className = '', alwaysExpanded = false }) => {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(alwaysExpanded);
   const [newTagName, setNewTagName] = useState('');
   const [isCreatingTag, setIsCreatingTag] = useState(false);
   
@@ -139,46 +158,50 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
 
   return (
     <div className={`relative h-full flex flex-col ${className}`}>
-      {/* Label */}
-      <label className="block text-sm font-normal text-gray-700 mb-2">
-        <Tag className="inline h-3.5 w-3.5 mr-1" />
-        Gắn thẻ phân loại (tùy chọn)
-      </label>
+      {/* Selected tags display - only show if not always expanded */}
+      {!alwaysExpanded && (
+        <>
+          {/* Label */}
+          <label className="block text-sm font-normal text-gray-700 mb-2">
+            <Tag className="inline h-3.5 w-3.5 mr-1" />
+            Gắn thẻ phân loại (tùy chọn)
+          </label>
 
-      {/* Selected tags display */}
-      <div className="min-h-[40px] border border-gray-300 rounded-lg p-2 bg-white cursor-pointer hover:border-gray-400 transition-colors"
-           onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
-        {selectedTags.length === 0 ? (
-          <div className="flex items-center text-gray-400 text-sm">
-            <Tag className="h-3.5 w-3.5 mr-2" />
-            <span>Click để chọn thẻ...</span>
+          <div className="min-h-[40px] border border-gray-300 rounded-lg p-2 bg-white cursor-pointer hover:border-gray-400 transition-colors"
+               onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
+            {selectedTags.length === 0 ? (
+              <div className="flex items-center text-gray-400 text-sm">
+                <Tag className="h-3.5 w-3.5 mr-2" />
+                <span>Click để chọn thẻ...</span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {getSelectedTagsDisplay().map(tag => (
+                  <span key={tag.id} 
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs text-white ${tag.color}`}>
+                    <Hash className="h-2.5 w-2.5 mr-1" />
+                    {tag.name}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTagToggle(tag);
+                      }}
+                      className="ml-1 hover:bg-white hover:bg-opacity-20 rounded-full p-0.5"
+                      title="Bỏ thẻ này"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {getSelectedTagsDisplay().map(tag => (
-              <span key={tag.id} 
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs text-white ${tag.color}`}>
-                <Hash className="h-2.5 w-2.5 mr-1" />
-                {tag.name}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleTagToggle(tag);
-                  }}
-                  className="ml-1 hover:bg-white hover:bg-opacity-20 rounded-full p-0.5"
-                  title="Bỏ thẻ này"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Dropdown */}
-      {isDropdownOpen && (
+      {(isDropdownOpen || alwaysExpanded) && (
         <div 
           className="relative z-40 mt-2 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 flex flex-col"
           onClick={(e) => {
@@ -199,7 +222,9 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
               </div>
             ) : (
               <div className="space-y-2 max-h-36 overflow-y-auto pr-2 pb-2" style={{pointerEvents: 'auto'}}>
-                {localTags.map(tag => (
+                {localTags.map(tag => {
+                  console.log('Tag:', tag.name, 'Color:', tag.color);
+                  return (
                   <div key={tag.id}
                        className={`flex items-center p-2 rounded transition-colors group ${
                          selectedTags.includes(tag.id) 
@@ -213,7 +238,10 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
                       }}
                       className="flex items-center flex-1 cursor-pointer"
                     >
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs text-white ${tag.color} mr-3`}>
+                      <span 
+                        className="inline-flex items-center px-2 py-1 rounded-full text-xs text-white mr-3"
+                        style={{ backgroundColor: getColorHex(tag.color) }}
+                      >
                         <Hash className="h-2.5 w-2.5 mr-1" />
                         {tag.name}
                       </span>
@@ -237,7 +265,7 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                ))}
+                )})}
               </div>
             )}
           </div>
@@ -368,7 +396,10 @@ const TagSelector = ({ selectedTags, onTagsChange, availableTags, onAddTag, grou
                   Bạn có chắc chắn muốn xóa thẻ này không?
                 </p>
                 <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm text-white ${tagToDelete.color}`}>
+                  <span 
+                    className="inline-flex items-center px-3 py-1.5 rounded-full text-sm text-white"
+                    style={{ backgroundColor: getColorHex(tagToDelete.color) }}
+                  >
                     <Hash className="h-3 w-3 mr-1" />
                     {tagToDelete.name}
                   </span>

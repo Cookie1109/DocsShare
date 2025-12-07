@@ -150,7 +150,7 @@ CREATE TABLE file_tags (
 CREATE TABLE activity_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id VARCHAR(128) NOT NULL,
-    action_type ENUM('upload', 'download', 'delete_file', 'create_group', 'join_group', 'create_tag') NOT NULL,
+    action_type ENUM('upload', 'download', 'delete_file', 'create_group', 'join_group', 'create_tag', 'file_updated', 'file_restored') NOT NULL,
     target_id VARCHAR(255),
     -- Dùng JSON để lưu các thông tin phụ trợ một cách linh hoạt.
     details JSON,

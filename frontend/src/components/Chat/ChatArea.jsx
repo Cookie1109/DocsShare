@@ -26,15 +26,20 @@ import {
   Check,
   Square,
   CheckSquare,
-  ArrowLeft
+  ArrowLeft,
+  RefreshCw,
+  History
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAuth } from 'firebase/auth';
 import TagSelector from './TagSelector';
 import GroupSidebar from './GroupSidebar';
+import UpdateFileModal from './UpdateFileModal';
+import VersionHistoryModal from './VersionHistoryModal';
 import { useGroupFiles } from '../../hooks/useGroupFiles';
 import tagsService from '../../services/tagsService';
 import filesService from '../../services/filesService';
+import fileVersionService from '../../services/fileVersionService';
 import { getFirestore, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 const ChatArea = ({ user, onBackClick, isMobileView }) => {
@@ -194,7 +199,13 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
   const [sidebarMode, setSidebarMode] = useState('none'); // 'none', 'groupInfo'
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredDocuments, setFilteredDocuments] = useState([]);
+  
+  // File version management state
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [selectedFileForUpdate, setSelectedFileForUpdate] = useState(null);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [openFileMenu, setOpenFileMenu] = useState(null); // Track which file menu is open
 
 
 
@@ -422,6 +433,30 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
       console.error('❌ Download failed:', error);
       setError('Không thể tải xuống file. Vui lòng thử lại.');
     }
+  };
+
+  // Handle update file button click
+  const handleUpdateFile = (file) => {
+    setSelectedFileForUpdate(file);
+    setShowUpdateModal(true);
+  };
+
+  // Handle version history button click
+  const handleViewHistory = (file) => {
+    setSelectedFileForUpdate(file);
+    setShowVersionHistory(true);
+  };
+
+  // Handle file update success
+  const handleFileUpdated = async () => {
+    setShowUpdateModal(false);
+    await refreshFiles(); // Refresh file list
+  };
+
+  // Handle version restore success
+  const handleVersionRestored = async () => {
+    setShowVersionHistory(false);
+    await refreshFiles(); // Refresh file list
   };
 
   // Handle navigate to file in chat
@@ -899,17 +934,46 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                               )}
                             </div>
                             
-                            {/* Download Button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation(); // Prevent triggering the file click
-                                handleDownloadFile(doc);
-                              }}
-                              className="flex-shrink-0 p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                              title="Tải xuống file"
-                            >
-                              <Download className="h-4 w-4" />
-                            </button>
+                            {/* File Actions: Update, History, Download */}
+                            <div className="flex items-center gap-1">
+                              {/* Update Button - Only for file uploader */}
+                              {doc.uploaderUid === user?.uid && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateFile(doc);
+                                  }}
+                                  className="flex-shrink-0 p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Cập nhật file"
+                                >
+                                  <RefreshCw className="h-4 w-4" />
+                                </button>
+                              )}
+                              
+                              {/* Version History Button - Everyone can view */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewHistory(doc);
+                                }}
+                                className="flex-shrink-0 p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                title="Lịch sử phiên bản"
+                              >
+                                <History className="h-4 w-4" />
+                              </button>
+                              
+                              {/* Download Button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDownloadFile(doc);
+                                }}
+                                className="flex-shrink-0 p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                title="Tải xuống file"
+                              >
+                                <Download className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1046,7 +1110,8 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
             return (
               <div key={doc.id} id={`file-${doc.id}`} className="flex flex-col mb-3 group relative">
                 {/* Message with Avatar */}
-                <div className={`flex items-end gap-3 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className={`flex items-end gap-2 ${doc.isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+                
                 {/* Avatar */}
                 {doc.uploaderAvatar ? (
                   <img 
@@ -1160,23 +1225,21 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                     )}
                   </div>
                   
-                  {/* Action Buttons */}
-                  <div className="flex space-x-1">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDownloadFile(doc);
-                      }}
-                      className={`p-2 rounded-lg transition-all duration-200 ${
-                        doc.isOwn 
-                          ? 'hover:bg-emerald-100 text-emerald-600 hover:text-emerald-800' 
-                          : 'hover:bg-orange-100 text-orange-600 hover:text-orange-800'
-                      }`}
-                      title="Tải xuống"
-                    >
-                      <Download className="h-5 w-5" />
-                    </button>
-                  </div>
+                  {/* Download Button */}
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDownloadFile(doc);
+                    }}
+                    className={`p-2 rounded-lg transition-all duration-200 flex-shrink-0 ${
+                      doc.isOwn 
+                        ? 'hover:bg-emerald-100 text-emerald-600 hover:text-emerald-800' 
+                        : 'hover:bg-orange-100 text-orange-600 hover:text-orange-800'
+                    }`}
+                    title="Tải xuống"
+                  >
+                    <Download className="h-5 w-5" />
+                  </button>
                 </div>
                 
                 {/* File Stats - Right aligned for own files, with timestamp */}
@@ -1192,6 +1255,69 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                   )}
                 </div>
                   </div>
+                </div>
+                
+                {/* 3-dot menu button - Far right */}
+                <div className="relative flex-shrink-0 self-end mb-1">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenFileMenu(openFileMenu === doc.id ? null : doc.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-2 rounded-lg transition-all duration-200 hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                    title="Thêm tùy chọn"
+                  >
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                  
+                  {/* Dropdown Menu */}
+                  {openFileMenu === doc.id && (
+                    <>
+                      {/* Backdrop to close menu */}
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenFileMenu(null);
+                        }}
+                      />
+                      
+                      {/* Menu */}
+                      <div className={`absolute w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-20 ${
+                        doc.isOwn 
+                          ? 'right-0 bottom-full mb-1' 
+                          : 'left-0 bottom-full mb-1'
+                      }`}>
+                        {/* Update option - Only for owner */}
+                        {doc.uploaderUid === user?.uid && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenFileMenu(null);
+                              handleUpdateFile(doc);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-3 transition-colors"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                            <span>Cập nhật file</span>
+                          </button>
+                        )}
+                        
+                        {/* Version History option */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenFileMenu(null);
+                            handleViewHistory(doc);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-3 transition-colors"
+                        >
+                          <History className="h-4 w-4" />
+                          <span>Lịch sử phiên bản</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1456,6 +1582,32 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
             )}
           </div>
         </div>
+      )}
+
+      {/* Update File Modal */}
+      {showUpdateModal && selectedFileForUpdate && (
+        <UpdateFileModal
+          file={selectedFileForUpdate}
+          groupId={selectedGroup}
+          onClose={() => {
+            setShowUpdateModal(false);
+            setSelectedFileForUpdate(null);
+          }}
+          onSuccess={handleFileUpdated}
+        />
+      )}
+
+      {/* Version History Modal */}
+      {showVersionHistory && selectedFileForUpdate && (
+        <VersionHistoryModal
+          file={selectedFileForUpdate}
+          currentUserId={user?.uid}
+          onClose={() => {
+            setShowVersionHistory(false);
+            setSelectedFileForUpdate(null);
+          }}
+          onRestore={handleVersionRestored}
+        />
       )}
 
       {/* Delete Confirmation Dialog */}

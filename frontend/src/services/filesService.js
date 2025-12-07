@@ -231,6 +231,41 @@ class FilesService {
       };
     }
   }
+
+  // Update file tags
+  async updateFileTags(fileId, tagIds) {
+    try {
+      const token = await this.getAuthToken();
+      
+      const response = await fetch(`${API_BASE_URL}/files/${fileId}/tags`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ tagIds })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to update tags: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to update tags');
+      }
+
+      return {
+        success: true,
+        data: data.data
+      };
+      
+    } catch (error) {
+      console.error(`❌ Update tags failed for file ${fileId}:`, error);
+      throw error;
+    }
+  }
 }
 
 export default new FilesService();

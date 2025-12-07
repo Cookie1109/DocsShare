@@ -1,6 +1,7 @@
 const cloudinary = require('cloudinary').v2;
-const { executeQuery, executeTransaction, db } = require('../config/db');
+const { executeQuery, executeTransaction, pool } = require('../config/db');
 const admin = require('../config/firebaseAdmin');
+const FileVersion = require('../models/FileVersion');
 
 // Ensure Cloudinary is configured for destroy operations
 cloudinary.config({
@@ -824,11 +825,532 @@ const trackDownload = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/files/:fileId/update
+ * Cập nhật file (chỉ người upload mới được cập nhật)
+ */
+const updateFile = async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { fileId } = req.params;
+    const userId = req.user.uid;
+    const { cloudinaryUrl, size, mimeType, fileName } = req.body;
+
+    console.log(`🔄 Update file request: fileId=${fileId}, userId=${userId}`);
+
+    await connection.beginTransaction();
+
+    // 1. Lấy thông tin file hiện tại
+    const [files] = await connection.execute(
+      `SELECT * FROM files WHERE id = ?`,
+      [fileId]
+    );
+
+    if (files.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'File không tồn tại'
+      });
+    }
+
+    const currentFile = files[0];
+
+    // 2. Kiểm tra quyền - CHỈ người upload mới được update
+    if (currentFile.uploader_id !== userId) {
+      await connection.rollback();
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ người gửi file mới có quyền cập nhật'
+      });
+    }
+
+    // 3. Lưu phiên bản hiện tại vào file_versions
+    await connection.execute(
+      `INSERT INTO file_versions 
+        (file_id, version_number, file_name, storage_path, size_bytes, mime_type, uploaded_by, uploaded_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        fileId,
+        currentFile.version || 1,
+        currentFile.name,
+        currentFile.storage_path,
+        currentFile.size_bytes,
+        currentFile.mime_type,
+        currentFile.uploader_id,
+        currentFile.created_at
+      ]
+    );
+
+    console.log(`✅ Saved version ${currentFile.version} to history`);
+
+    // 4. Cleanup old versions (giữ tối đa 5 phiên bản)
+    // Đếm số phiên bản hiện tại
+    const [countResult] = await connection.execute(
+      `SELECT COUNT(*) as count FROM file_versions WHERE file_id = ?`,
+      [fileId]
+    );
+    
+    const versionCount = countResult[0].count;
+    const maxHistoryVersions = 5 - 1; // 5 total - 1 current = 4 history versions
+    
+    if (versionCount >= maxHistoryVersions) {
+      // Lấy version cũ nhất
+      const [oldestVersion] = await connection.execute(
+        `SELECT id, version_number, storage_path 
+         FROM file_versions 
+         WHERE file_id = ? 
+         ORDER BY version_number ASC 
+         LIMIT 1`,
+        [fileId]
+      );
+      
+      if (oldestVersion.length > 0) {
+        const oldest = oldestVersion[0];
+        
+        // Xóa khỏi DB
+        await connection.execute(
+          `DELETE FROM file_versions WHERE id = ?`,
+          [oldest.id]
+        );
+        
+        console.log(`🗑️ Deleted old version ${oldest.version_number}`);
+        
+        // Xóa file cũ nhất khỏi Cloudinary
+        try {
+          const publicId = oldest.storage_path
+            .split('/upload/')[1]
+            .split('.')[0];
+          await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+          console.log(`✅ Deleted old file from Cloudinary: ${publicId}`);
+        } catch (cloudinaryError) {
+          console.warn(`⚠️ Failed to delete from Cloudinary:`, cloudinaryError.message);
+        }
+      }
+    }
+
+    // 5. Update file hiện tại
+    const newVersion = (currentFile.version || 1) + 1;
+    
+    await connection.execute(
+      `UPDATE files 
+       SET name = ?,
+           storage_path = ?,
+           size_bytes = ?,
+           mime_type = ?,
+           version = ?,
+           last_updated_at = NOW(),
+           last_updated_by = ?
+       WHERE id = ?`,
+      [fileName, cloudinaryUrl, size, mimeType, newVersion, userId, fileId]
+    );
+
+    // 6. Log activity
+    await connection.execute(
+      `INSERT INTO activity_logs (user_id, action_type, target_id, details, created_at)
+       VALUES (?, 'file_updated', ?, JSON_OBJECT('file_name', ?, 'old_version', ?, 'new_version', ?), NOW())`,
+      [userId, fileId.toString(), fileName, currentFile.version || 1, newVersion]
+    );
+
+    await connection.commit();
+
+    // 7. Lấy thông tin file đã update (không cần join users vì uploader_id là Firebase UID)
+    const [updatedFiles] = await connection.execute(
+      `SELECT * FROM files WHERE id = ?`,
+      [fileId]
+    );
+
+    const updatedFile = updatedFiles[0];
+
+    console.log(`✅ File updated successfully to version ${newVersion}`);
+
+    // 8. Emit Socket.IO event for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group_${currentFile.group_id}`).emit('file:updated', {
+        fileId: parseInt(fileId),
+        groupId: currentFile.group_id,
+        file: {
+          id: updatedFile.id,
+          name: updatedFile.name,
+          version: updatedFile.version,
+          size: updatedFile.size_bytes,
+          storage_path: updatedFile.storage_path,
+          mime_type: updatedFile.mime_type,
+          updated_at: updatedFile.last_updated_at,
+          updated_by: `${req.user.displayName || 'User'}#${req.user.tag || '0000'}`
+        }
+      });
+      console.log(`📡 Emitted file:updated event to group_${currentFile.group_id}`);
+    }
+
+    res.json({
+      success: true,
+      message: `Đã cập nhật lên phiên bản ${newVersion}`,
+      data: {
+        id: updatedFile.id,
+        name: updatedFile.name,
+        version: updatedFile.version,
+        size: updatedFile.size_bytes,
+        storage_path: updatedFile.storage_path,
+        mime_type: updatedFile.mime_type,
+        updated_at: updatedFile.last_updated_at,
+        updated_by: updatedFile.last_updated_by
+      }
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ Error updating file:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi cập nhật file',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * GET /api/files/:fileId/versions
+ * Lấy lịch sử phiên bản của file
+ */
+const getFileVersions = async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const userId = req.user.uid;
+
+    console.log(`📋 Get versions request: fileId=${fileId}, userId=${userId}`);
+
+    // 1. Lấy thông tin file hiện tại
+    const files = await executeQuery(
+      `SELECT * FROM files WHERE id = ?`,
+      [fileId]
+    );
+
+    if (files.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'File không tồn tại'
+      });
+    }
+
+    const currentFile = files[0];
+
+    // 2. Kiểm tra user có quyền xem không (phải là thành viên nhóm)
+    const membership = await executeQuery(
+      `SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? LIMIT 1`,
+      [currentFile.group_id, userId]
+    );
+
+    if (membership.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền xem file này'
+      });
+    }
+
+    // 3. Lấy lịch sử phiên bản
+    const versionHistory = await FileVersion.getVersionsByFileId(fileId);
+
+    // 4. Lấy thống kê
+    const stats = await FileVersion.getVersionStats(fileId);
+
+    // 5. Format response
+    const versions = [
+      // Phiên bản hiện tại
+      {
+        versionNumber: currentFile.version || 1,
+        fileName: currentFile.name,
+        size: currentFile.size_bytes,
+        mimeType: currentFile.mime_type,
+        uploadedBy: currentFile.uploader_id, // Firebase UID
+        uploadedAt: currentFile.last_updated_at || currentFile.created_at,
+        isCurrent: true,
+        canRestore: false,
+        storagePath: currentFile.storage_path
+      },
+      // Các phiên bản cũ
+      ...versionHistory.map(v => ({
+        versionNumber: v.version_number,
+        fileName: v.file_name,
+        size: v.size_bytes,
+        mimeType: v.mime_type,
+        uploadedBy: v.uploaded_by, // Firebase UID
+        uploadedAt: v.uploaded_at,
+        isCurrent: false,
+        canRestore: currentFile.uploader_id === userId, // Chỉ owner mới restore được
+        storagePath: v.storage_path
+      }))
+    ];
+
+    console.log(`✅ Found ${versions.length} versions for file ${fileId}`);
+
+    res.json({
+      success: true,
+      data: {
+        fileId: currentFile.id,
+        fileName: currentFile.name,
+        currentVersion: currentFile.version || 1,
+        totalVersions: versions.length,
+        canUpdate: currentFile.uploader_id === userId,
+        versions: versions,
+        stats: {
+          oldestVersion: stats?.oldest_version || 1,
+          totalHistorySize: stats?.total_size || 0
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting file versions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi lấy lịch sử phiên bản',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * POST /api/files/:fileId/versions/:versionNumber/restore
+ * Khôi phục phiên bản cũ (chỉ owner)
+ */
+const restoreFileVersion = async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { fileId, versionNumber } = req.params;
+    const userId = req.user.uid;
+
+    console.log(`🔄 Restore version request: fileId=${fileId}, version=${versionNumber}, userId=${userId}`);
+
+    await connection.beginTransaction();
+
+    // 1. Lấy file hiện tại
+    const [files] = await connection.execute(
+      `SELECT * FROM files WHERE id = ?`,
+      [fileId]
+    );
+
+    if (files.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'File không tồn tại'
+      });
+    }
+
+    const currentFile = files[0];
+
+    // 2. Kiểm tra quyền - CHỈ owner mới restore được
+    if (currentFile.uploader_id !== userId) {
+      await connection.rollback();
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ người gửi file mới có quyền khôi phục phiên bản'
+      });
+    }
+
+    // 3. Lấy thông tin phiên bản cần restore
+    const versionToRestore = await FileVersion.getVersionByNumber(fileId, parseInt(versionNumber));
+
+    if (!versionToRestore) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Phiên bản không tồn tại'
+      });
+    }
+
+    // 4. Lưu phiên bản hiện tại vào lịch sử
+    await FileVersion.saveVersion(fileId, {
+      version_number: currentFile.version || 1,
+      file_name: currentFile.name,
+      storage_path: currentFile.storage_path,
+      size_bytes: currentFile.size_bytes,
+      mime_type: currentFile.mime_type,
+      uploaded_by: currentFile.uploader_id,
+      uploaded_at: currentFile.last_updated_at || currentFile.created_at
+    });
+
+    // 5. Cleanup old versions
+    await FileVersion.cleanupOldVersions(fileId, 5);
+
+    // 6. Restore: cập nhật file hiện tại với nội dung từ phiên bản cũ
+    const newVersion = (currentFile.version || 1) + 1;
+
+    await connection.execute(
+      `UPDATE files 
+       SET name = ?,
+           storage_path = ?,
+           size_bytes = ?,
+           mime_type = ?,
+           version = ?,
+           last_updated_at = NOW(),
+           last_updated_by = ?
+       WHERE id = ?`,
+      [
+        versionToRestore.file_name,
+        versionToRestore.storage_path,
+        versionToRestore.size_bytes,
+        versionToRestore.mime_type,
+        newVersion,
+        userId,
+        fileId
+      ]
+    );
+
+    // 7. Log activity
+    await connection.execute(
+      `INSERT INTO activity_logs (user_id, action_type, target_id, details, created_at)
+       VALUES (?, 'file_restored', ?, JSON_OBJECT('restored_from_version', ?, 'new_version', ?), NOW())`,
+      [userId, fileId.toString(), versionNumber, newVersion]
+    );
+
+    await connection.commit();
+
+    console.log(`✅ Restored version ${versionNumber} as version ${newVersion}`);
+
+    // 8. Emit real-time event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group_${currentFile.group_id}`).emit('file:updated', {
+        fileId: parseInt(fileId),
+        groupId: currentFile.group_id,
+        file: {
+          id: parseInt(fileId),
+          name: versionToRestore.file_name,
+          version: newVersion,
+          size: versionToRestore.size_bytes,
+          storage_path: versionToRestore.storage_path,
+          mime_type: versionToRestore.mime_type,
+          updated_at: new Date(),
+          updated_by: `${req.user.displayName || 'User'}#${req.user.tag || '0000'}`
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Đã khôi phục phiên bản ${versionNumber} thành phiên bản ${newVersion}`,
+      data: {
+        fileId: parseInt(fileId),
+        restoredFromVersion: parseInt(versionNumber),
+        newCurrentVersion: newVersion,
+        fileName: versionToRestore.file_name
+      }
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ Error restoring file version:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi khôi phục phiên bản',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * PUT /api/files/:fileId/tags
+ * Update tags for a file
+ */
+const updateFileTags = async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { fileId } = req.params;
+    const { tagIds } = req.body;
+    const userId = req.user.uid;
+
+    console.log(`🏷️ Update tags request: fileId=${fileId}, tagIds=${tagIds}`);
+
+    await connection.beginTransaction();
+
+    // 1. Check if file exists and user has permission
+    const files = await executeQuery(
+      `SELECT * FROM files WHERE id = ?`,
+      [fileId]
+    );
+
+    if (files.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'File không tồn tại'
+      });
+    }
+
+    const file = files[0];
+
+    // 2. Check if user is owner or member of group
+    const membership = await executeQuery(
+      `SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? LIMIT 1`,
+      [file.group_id, userId]
+    );
+
+    if (membership.length === 0) {
+      await connection.rollback();
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền cập nhật file này'
+      });
+    }
+
+    // 3. Delete old tags
+    await connection.execute(
+      `DELETE FROM file_tags WHERE file_id = ?`,
+      [fileId]
+    );
+
+    // 4. Insert new tags
+    if (tagIds && tagIds.length > 0) {
+      const values = tagIds.map(tagId => [fileId, tagId]);
+      await connection.query(
+        `INSERT INTO file_tags (file_id, tag_id) VALUES ?`,
+        [values]
+      );
+    }
+
+    await connection.commit();
+
+    console.log(`✅ Updated tags for file ${fileId}`);
+
+    res.json({
+      success: true,
+      message: 'Đã cập nhật tags',
+      data: { fileId, tagIds }
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ Error updating file tags:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi cập nhật tags',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   createUploadSignature,
   saveFileMetadata,
   getGroupFiles,
   deleteFile,
   trackDownload,
-  debugUserGroups
+  debugUserGroups,
+  updateFile,
+  getFileVersions,
+  restoreFileVersion,
+  updateFileTags
 };
+

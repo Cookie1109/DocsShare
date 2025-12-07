@@ -4,7 +4,11 @@ const {
   saveFileMetadata, 
   getGroupFiles,
   deleteFile,
-  trackDownload
+  trackDownload,
+  updateFile,
+  getFileVersions,
+  restoreFileVersion,
+  updateFileTags
   // debugUserGroups - temporarily removed to test
 } = require('../controllers/filesController');
 const verifyFirebaseToken = require('../middleware/firebaseAuth');
@@ -200,5 +204,126 @@ router.use((error, req, res, next) => {
  *   404: { "success": false, "message": "File not found or you do not have access to this file" }
  */
 router.delete('/:fileId', verifyFirebaseToken, deleteFile);
+
+/**
+ * PUT /api/files/:fileId/update
+ * Cập nhật file - chỉ người upload mới được cập nhật
+ * Lưu phiên bản cũ vào lịch sử và giữ tối đa 5 phiên bản
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Params:
+ *   fileId: ID của file cần cập nhật
+ * 
+ * Body:
+ *   {
+ *     "cloudinaryUrl": "https://res.cloudinary.com/...",
+ *     "size": 2500000,
+ *     "mimeType": "application/pdf",
+ *     "fileName": "document_v2.pdf"
+ *   }
+ * 
+ * Response Success:
+ *   {
+ *     "success": true,
+ *     "message": "Đã cập nhật lên phiên bản 3",
+ *     "data": {
+ *       "id": 123,
+ *       "name": "document_v2.pdf",
+ *       "version": 3,
+ *       "size": 2500000,
+ *       "updated_at": "2025-12-07T10:30:00Z"
+ *     }
+ *   }
+ */
+router.put('/:fileId/update', verifyFirebaseToken, updateFile);
+
+/**
+ * GET /api/files/:fileId/versions
+ * Lấy lịch sử phiên bản của file
+ * Tất cả thành viên nhóm đều có thể xem
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Params:
+ *   fileId: ID của file
+ * 
+ * Response Success:
+ *   {
+ *     "success": true,
+ *     "data": {
+ *       "currentVersion": 3,
+ *       "totalVersions": 3,
+ *       "canUpdate": true,
+ *       "versions": [
+ *         {
+ *           "versionNumber": 3,
+ *           "fileName": "doc.pdf",
+ *           "size": 2500000,
+ *           "uploadedBy": "User#1234",
+ *           "uploadedAt": "2025-12-07T10:30:00Z",
+ *           "isCurrent": true,
+ *           "canRestore": false
+ *         },
+ *         ...
+ *       ]
+ *     }
+ *   }
+ */
+router.get('/:fileId/versions', verifyFirebaseToken, getFileVersions);
+
+/**
+ * POST /api/files/:fileId/versions/:versionNumber/restore
+ * Khôi phục phiên bản cũ - chỉ người upload mới được khôi phục
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Params:
+ *   fileId: ID của file
+ *   versionNumber: Số phiên bản cần khôi phục
+ * 
+ * Response Success:
+ *   {
+ *     "success": true,
+ *     "message": "Đã khôi phục phiên bản 2 thành phiên bản 4",
+ *     "data": {
+ *       "fileId": 123,
+ *       "restoredFromVersion": 2,
+ *       "newCurrentVersion": 4
+ *     }
+ *   }
+ */
+router.post('/:fileId/versions/:versionNumber/restore', verifyFirebaseToken, restoreFileVersion);
+
+/**
+ * PUT /api/files/:fileId/tags
+ * Cập nhật tags cho file
+ * Thành viên nhóm có thể cập nhật tags
+ * 
+ * Headers:
+ *   Authorization: Bearer <firebase_id_token>
+ * 
+ * Params:
+ *   fileId: ID của file
+ * 
+ * Body:
+ *   {
+ *     "tagIds": [1, 2, 3]
+ *   }
+ * 
+ * Response Success:
+ *   {
+ *     "success": true,
+ *     "message": "Đã cập nhật tags",
+ *     "data": {
+ *       "fileId": 123,
+ *       "tagIds": [1, 2, 3]
+ *     }
+ *   }
+ */
+router.put('/:fileId/tags', verifyFirebaseToken, updateFileTags);
 
 module.exports = router;
