@@ -9,7 +9,9 @@ const GroupsList = ({ onClose, onSelectGroup }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [memberCounts, setMemberCounts] = useState({});
-  const { userGroups, user, selectGroup } = useAuth();
+  const [newFileCounts, setNewFileCounts] = useState({});
+  const [latestFileTimestamps, setLatestFileTimestamps] = useState({});
+  const { userGroups, user, selectGroup, selectedGroup } = useAuth();
 
   const filteredGroups = userGroups.filter(group =>
     group.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -38,6 +40,80 @@ const GroupsList = ({ onClose, onSelectGroup }) => {
     };
   }, [userGroups]);
 
+  // 🔥 Real-time listener for files in each group (count new files + get latest file time)
+  useEffect(() => {
+    if (userGroups.length === 0) return;
+
+    const unsubscribes = userGroups.map((group) => {
+      const filesQuery = collection(db, 'groups', group.id.toString(), 'files');
+
+      return onSnapshot(filesQuery, (snapshot) => {
+        const files = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        // Find latest file timestamp
+        let latestTimestamp = null;
+        files.forEach(file => {
+          const uploadedAt = file.uploadedAt?.toDate?.() || new Date(file.uploadedAt);
+          if (!latestTimestamp || uploadedAt > latestTimestamp) {
+            latestTimestamp = uploadedAt;
+          }
+        });
+
+        if (latestTimestamp) {
+          setLatestFileTimestamps(prev => ({
+            ...prev,
+            [group.id]: latestTimestamp
+          }));
+        }
+
+        // Count new files (uploaded after last seen)
+        const lastSeenKey = `lastSeen_${group.id}`;
+        const lastSeenTimestamp = localStorage.getItem(lastSeenKey);
+
+        let newCount = 0;
+        if (lastSeenTimestamp) {
+          const lastSeen = new Date(parseInt(lastSeenTimestamp));
+          files.forEach(file => {
+            const uploadedAt = file.uploadedAt?.toDate?.() || new Date(file.uploadedAt);
+            
+            // Don't count files uploaded by current user
+            if (file.uploaderId === user?.uid) return;
+            
+            if (uploadedAt > lastSeen) {
+              newCount++;
+            }
+          });
+        }
+
+        setNewFileCounts(prev => ({
+          ...prev,
+          [group.id]: newCount
+        }));
+      });
+    });
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [userGroups, user]);
+
+  // Mark files as seen when a group is selected
+  useEffect(() => {
+    if (selectedGroup) {
+      const lastSeenKey = `lastSeen_${selectedGroup}`;
+      localStorage.setItem(lastSeenKey, Date.now().toString());
+      
+      // Reset new file count for selected group
+      setNewFileCounts(prev => ({
+        ...prev,
+        [selectedGroup]: 0
+      }));
+    }
+  }, [selectedGroup]);
+
   const handleGroupSelect = async (groupId) => {
     await selectGroup(groupId);
     if (onSelectGroup) {
@@ -55,6 +131,25 @@ const GroupsList = ({ onClose, onSelectGroup }) => {
 
   const isGroupCreator = (group) => {
     return group.creatorId === user?.uid;
+  };
+
+  const formatLatestFileDate = (groupId) => {
+    const timestamp = latestFileTimestamps[groupId];
+    if (!timestamp) return '';
+
+    const now = new Date();
+    const diff = now - timestamp;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (seconds < 60) return 'Vừa xong';
+    if (minutes < 60) return `${minutes} phút trước`;
+    if (hours < 24) return `${hours} giờ trước`;
+    if (days < 7) return `${days} ngày trước`;
+    
+    return timestamp.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
   };
 
   return (
@@ -143,25 +238,29 @@ const GroupsList = ({ onClose, onSelectGroup }) => {
 
                     {/* Group Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-gray-900 truncate">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <h3 className="font-medium text-gray-900 truncate flex-1">
                           {group.name}
                         </h3>
-                        <div className="flex items-center gap-1">
-                          {isGroupCreator(group) && (
-                            <Crown className="w-4 h-4 text-yellow-500" title="Người tạo nhóm" />
-                          )}
-                          {isUserAdmin(group) && !isGroupCreator(group) && (
-                            <Settings className="w-4 h-4 text-blue-500" title="Quản trị viên" />
-                          )}
-                        </div>
+                        {/* New Files Badge - replaces "Chủ nhóm" */}
+                        {newFileCounts[group.id] > 0 && (
+                          <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0">
+                            {newFileCounts[group.id] > 99 ? '99+' : newFileCounts[group.id]}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center justify-between">
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-gray-500 flex items-center gap-1">
+                          {isGroupCreator(group) && (
+                            <Crown className="w-3 h-3 text-yellow-500" title="Chủ nhóm" />
+                          )}
+                          {isUserAdmin(group) && !isGroupCreator(group) && (
+                            <Settings className="w-3 h-3 text-blue-500" title="Quản trị viên" />
+                          )}
                           {getGroupMemberCount(group)} thành viên
                         </p>
                         <p className="text-xs text-gray-400">
-                          {group.createdAt ? new Date(group.createdAt.seconds * 1000).toLocaleDateString('vi-VN') : ''}
+                          {formatLatestFileDate(group.id) || (group.createdAt ? new Date(group.createdAt.seconds * 1000).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) : '')}
                         </p>
                       </div>
                     </div>

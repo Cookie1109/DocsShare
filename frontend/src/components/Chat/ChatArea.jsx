@@ -1201,9 +1201,16 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
                     <p className={`font-semibold text-sm truncate ${doc.isOwn ? 'text-gray-800' : 'text-gray-800'}`}>
                       {doc.name}
                     </p>
-                    <p className={`text-xs ${doc.isOwn ? 'text-emerald-600' : 'text-orange-600'}`}>
-                      {doc.size}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className={`text-xs ${doc.isOwn ? 'text-emerald-600' : 'text-orange-600'}`}>
+                        {doc.size}
+                      </p>
+                      {doc.versionCount >= 2 && (
+                        <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
+                          Đã cập nhật
+                        </span>
+                      )}
+                    </div>
                     
                     {/* Tags */}
                     {doc.tags && doc.tags.length > 0 && (
@@ -1417,7 +1424,7 @@ const ChatArea = ({ user, onBackClick, isMobileView }) => {
       {/* Upload Dialog */}
       {showUploadDialog && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4"
           onDragOver={handleDragOver}
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}

@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Users, FileText, MoreVertical, Hash } from 'lucide-react';
+import { Search, Plus, Users, FileText, MoreVertical, Hash, Crown, Settings } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { db } from '../../config/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 const ChatSidebar = ({ onGroupSelect }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const groupsListRef = useRef(null);
   const groupRefs = useRef({});
+  const selectedGroupRef = useRef(null);
   
   // Use real groups from AuthContext
   const { userGroups, selectGroup, selectedGroup, createNewGroup, user } = useAuth();
@@ -15,13 +18,133 @@ const ChatSidebar = ({ onGroupSelect }) => {
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupImage, setNewGroupImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  
+  // Track new file counts and latest timestamps for each group
+  const [newFileCounts, setNewFileCounts] = useState({});
+  const [latestFileTimestamps, setLatestFileTimestamps] = useState({});
+  
+  // Update ref when selectedGroup changes
+  useEffect(() => {
+    selectedGroupRef.current = selectedGroup;
+  }, [selectedGroup]);
 
   const filteredGroups = groups.filter(group =>
     group.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  
+  // Real-time file monitoring for all user groups
+  useEffect(() => {
+    if (!user || groups.length === 0) return;
+
+    const unsubscribes = groups.map((group) => {
+      const filesQuery = collection(db, 'groups', group.id.toString(), 'files');
+      
+      return onSnapshot(filesQuery, (snapshot) => {
+        // Check if user is currently viewing this group (use ref for latest value)
+        const isCurrentlyViewing = selectedGroupRef.current?.id === group.id;
+        
+        // Get last seen timestamp from localStorage (user-specific)
+        const lastSeenKey = `lastSeen_${user.uid}_${group.id}`;
+        let lastSeen = parseInt(localStorage.getItem(lastSeenKey) || '0');
+        
+        // Initialize lastSeen to now if first time (to avoid counting all existing files)
+        if (lastSeen === 0) {
+          lastSeen = Date.now();
+          localStorage.setItem(lastSeenKey, lastSeen.toString());
+        }
+        
+        // If user is currently viewing this group, update lastSeen to now and don't count
+        if (isCurrentlyViewing) {
+          localStorage.setItem(lastSeenKey, Date.now().toString());
+          setNewFileCounts(prev => ({ ...prev, [group.id]: 0 }));
+          
+          // Still update latest timestamp
+          let latestTimestamp = null;
+          snapshot.forEach((doc) => {
+            const fileData = doc.data();
+            const uploadedAt = fileData.uploadedAt?.toMillis() || 0;
+            if (!latestTimestamp || uploadedAt > latestTimestamp) {
+              latestTimestamp = uploadedAt;
+            }
+          });
+          if (latestTimestamp) {
+            setLatestFileTimestamps(prev => ({ ...prev, [group.id]: latestTimestamp }));
+          }
+          return;
+        }
+        
+        // Count new files uploaded after last seen (only for groups not currently viewing)
+        let newCount = 0;
+        let latestTimestamp = null;
+        
+        snapshot.forEach((doc) => {
+          const fileData = doc.data();
+          const uploadedAt = fileData.uploadedAt?.toMillis() || 0;
+          const uploaderId = fileData.uploaderId || fileData.uploadedBy || fileData.userId;
+          
+          // Only count files uploaded by OTHER users (not yourself)
+          // Skip files without uploaderId info (old files before this feature)
+          if (uploaderId && uploadedAt > lastSeen && uploaderId !== user.uid) {
+            newCount++;
+          }
+          
+          // Track latest file timestamp
+          if (!latestTimestamp || uploadedAt > latestTimestamp) {
+            latestTimestamp = uploadedAt;
+          }
+        });
+        
+        // Update state
+        setNewFileCounts(prev => ({ ...prev, [group.id]: newCount }));
+        if (latestTimestamp) {
+          setLatestFileTimestamps(prev => ({ ...prev, [group.id]: latestTimestamp }));
+        }
+      });
+    });
+
+    // Cleanup listeners on unmount
+    return () => {
+      unsubscribes.forEach(unsubscribe => unsubscribe());
+    };
+  }, [groups, user]);
+  
+  // Auto-reset badge when group is selected
+  useEffect(() => {
+    if (selectedGroup && user) {
+      const lastSeenKey = `lastSeen_${user.uid}_${selectedGroup.id}`;
+      localStorage.setItem(lastSeenKey, Date.now().toString());
+      setNewFileCounts(prev => ({ ...prev, [selectedGroup.id]: 0 }));
+    }
+  }, [selectedGroup, user]);
+  
+  // Format latest file date (smart formatting)
+  const formatLatestFileDate = (groupId) => {
+    const timestamp = latestFileTimestamps[groupId];
+    if (!timestamp) return '';
+    
+    const now = Date.now();
+    const diff = now - timestamp;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (seconds < 60) return 'Vừa xong';
+    if (minutes < 60) return `${minutes} phút trước`;
+    if (hours < 24) return `${hours} giờ trước`;
+    if (days < 7) return `${days} ngày trước`;
+    
+    const date = new Date(timestamp);
+    return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+  };
 
   // Handle group selection
   const handleGroupSelect = async (group) => {
+    // Reset badge immediately (before context updates)
+    const lastSeenKey = `lastSeen_${user.uid}_${group.id}`;
+    localStorage.setItem(lastSeenKey, Date.now().toString());
+    setNewFileCounts(prev => ({ ...prev, [group.id]: 0 }));
+    
     // Reset search query
     setSearchQuery('');
     
@@ -142,14 +265,24 @@ const ChatSidebar = ({ onGroupSelect }) => {
                   {/* Group Info - Always visible */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-gray-900 truncate text-sm">
-                        {group.name}
-                      </h3>
-                      {group.createdAt && (
-                        <span className="text-xs text-gray-500 ml-2">
-                          {new Date(group.createdAt.seconds * 1000).toLocaleDateString('vi-VN')}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-gray-900 truncate text-sm">
+                          {group.name}
+                        </h3>
+                        {newFileCounts[group.id] > 0 && selectedGroup?.id !== group.id && (
+                          <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                            {newFileCounts[group.id] > 99 ? '99+' : newFileCounts[group.id]}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500 ml-2">
+                        {latestFileTimestamps[group.id] 
+                          ? formatLatestFileDate(group.id)
+                          : (group.createdAt 
+                              ? new Date(group.createdAt.seconds * 1000).toLocaleDateString('vi-VN')
+                              : '')
+                        }
+                      </span>
                     </div>
                     
                     <div className="flex items-center justify-between mt-1">
@@ -158,13 +291,10 @@ const ChatSidebar = ({ onGroupSelect }) => {
                         <span className="text-xs text-gray-500">
                           {group.userRole === 'admin' ? 'Quản trị viên' : 'Thành viên'}
                         </span>
+                        {group.creatorId === user?.uid && (
+                          <Crown className="h-3 w-3 text-yellow-500" />
+                        )}
                       </div>
-                      
-                      {group.creatorId === user?.uid && (
-                        <span className="bg-yellow-500 text-white text-xs rounded-full px-2 py-0.5 font-medium">
-                          Chủ nhóm
-                        </span>
-                      )}
                     </div>
                     
                     {group.lastDocument && (

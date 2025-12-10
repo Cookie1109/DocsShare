@@ -76,7 +76,8 @@ export const useGroupFiles = (selectedGroup) => {
           views: 0,
           isOwn: apiFile.uploader.uid === getCurrentUserId(),
           tags: tagIds,
-          url: apiFile.url
+          url: apiFile.url,
+          versionCount: apiFile.versionCount || 0
         };
       });
     });
@@ -212,19 +213,54 @@ export const useGroupFiles = (selectedGroup) => {
             changes.forEach(change => {
               if (change.type === 'modified') {
                 const firestoreData = change.doc.data();
-                const fileId = firestoreData.fileId;
+                const docId = change.doc.id; // Firestore document ID
                 
-                console.log(`✏️ File ${fileId} modified in Firestore:`, firestoreData);
+                console.log(`✏️ File ${docId} modified in Firestore:`, firestoreData);
                 
-                // Update download count in local state without full refetch
+                // Update download count and version count in local state without full refetch
                 setRawGroupFiles(prev => {
                   const groupFiles = prev[selectedGroup] || [];
                   const updatedFiles = groupFiles.map(file => {
-                    if (file.id === fileId && firestoreData.downloadCount !== undefined) {
-                      console.log(`📊 Updating download count for ${file.name}: ${file.downloadCount || 0} → ${firestoreData.downloadCount}`);
+                    // Match by file.id (MySQL ID) === Firestore document ID
+                    if (file.id.toString() === docId) {
+                      const updates = {};
+                      
+                      // Update download count if changed
+                      if (firestoreData.downloadCount !== undefined) {
+                        console.log(`📊 Updating download count for ${file.name}: ${file.downloadCount || 0} → ${firestoreData.downloadCount}`);
+                        updates.downloadCount = firestoreData.downloadCount;
+                      }
+                      
+                      // Update version count if changed (when file is updated)
+                      if (firestoreData.versionCount !== undefined) {
+                        console.log(`🔄 Updating version count for ${file.name}: ${file.versionCount || 0} → ${firestoreData.versionCount}`);
+                        updates.versionCount = firestoreData.versionCount;
+                      }
+                      
+                      // Update file info if file was replaced
+                      if (firestoreData.name && firestoreData.name !== file.name) {
+                        console.log(`📝 Updating file name: ${file.name} → ${firestoreData.name}`);
+                        updates.name = firestoreData.name;
+                      }
+                      
+                      if (firestoreData.url && firestoreData.url !== file.url) {
+                        console.log(`🔗 Updating file URL`);
+                        updates.url = firestoreData.url;
+                      }
+                      
+                      if (firestoreData.size !== undefined && firestoreData.size !== file.size) {
+                        console.log(`📦 Updating file size: ${file.size} → ${firestoreData.size}`);
+                        updates.size = firestoreData.size;
+                      }
+                      
+                      if (firestoreData.mimeType && firestoreData.mimeType !== file.mimeType) {
+                        console.log(`📄 Updating file type: ${file.mimeType} → ${firestoreData.mimeType}`);
+                        updates.mimeType = firestoreData.mimeType;
+                      }
+                      
                       return {
                         ...file,
-                        downloadCount: firestoreData.downloadCount
+                        ...updates
                       };
                     }
                     return file;

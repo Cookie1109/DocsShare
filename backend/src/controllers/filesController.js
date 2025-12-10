@@ -223,6 +223,7 @@ const saveFileMetadata = async (req, res) => {
       // Tạo document trong Firestore
       const fileDoc = {
         id: result.fileId,
+        fileId: result.fileId, // Add fileId field for query matching
         name: name,
         url: url,
         size: size,
@@ -233,6 +234,7 @@ const saveFileMetadata = async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         uploadedAt: admin.firestore.FieldValue.serverTimestamp(), // Keep for compatibility
         downloadCount: 0,
+        versionCount: 1, // Initialize version count
         tags: tagsMap,
         tagIds: tagIds || []
       };
@@ -367,13 +369,14 @@ const getGroupFiles = async (req, res) => {
 
     console.log(`✅ User is member of group ${mysqlGroupId}`);
 
-    // Lấy files với tags (file mới nhất ở dưới cùng như chat)
+    // Lấy files với tags và version count (file mới nhất ở dưới cùng như chat)
     const files = await executeQuery(`
       SELECT 
         f.*,
         GROUP_CONCAT(
           JSON_OBJECT('id', t.id, 'name', t.name)
-        ) as tags_json
+        ) as tags_json,
+        (SELECT COUNT(*) + 1 FROM file_versions WHERE file_id = f.id) as version_count
       FROM files f
       LEFT JOIN file_tags ft ON f.id = ft.file_id
       LEFT JOIN tags t ON ft.tag_id = t.id
@@ -437,7 +440,8 @@ const getGroupFiles = async (req, res) => {
         },
         tagIds: tagIds, // Only return tagIds, not full tag objects
         downloadCount: file.download_count,
-        createdAt: file.created_at
+        createdAt: file.created_at,
+        versionCount: file.version_count || 0
       };
     });
 
@@ -965,7 +969,47 @@ const updateFile = async (req, res) => {
 
     console.log(`✅ File updated successfully to version ${newVersion}`);
 
-    // 8. Emit Socket.IO event for real-time update
+    // 8. Sync versionCount to Firestore for real-time update
+    try {
+      const admin = require('../config/firebaseAdmin');
+      const db = admin.firestore();
+      
+      // Get Firestore group ID
+      const [mapping] = await executeQuery(
+        `SELECT firestore_id FROM group_mapping WHERE mysql_id = ?`,
+        [currentFile.group_id]
+      );
+      
+      if (mapping && mapping.firestore_id) {
+        const firestoreGroupId = mapping.firestore_id;
+        
+        // Find file document in Firestore by document ID (fileId.toString())
+        const fileDocRef = db.collection('groups')
+          .doc(firestoreGroupId)
+          .collection('files')
+          .doc(fileId.toString());
+        
+        const fileDoc = await fileDocRef.get();
+        
+        if (fileDoc.exists) {
+          const newVersionCount = newVersion; // Current version = total versions
+          
+          await fileDocRef.update({
+            name: fileName,
+            url: cloudinaryUrl,
+            size: size,
+            mimeType: mimeType,
+            versionCount: newVersionCount,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+          console.log(`✅ Updated file info in Firestore: ${fileName}, versionCount: ${newVersionCount}`);
+        }
+      }
+    } catch (firestoreError) {
+      console.warn(`⚠️ Firestore sync failed:`, firestoreError.message);
+    }
+
+    // 9. Emit Socket.IO event for real-time update
     const io = req.app.get('io');
     if (io) {
       io.to(`group_${currentFile.group_id}`).emit('file:updated', {
